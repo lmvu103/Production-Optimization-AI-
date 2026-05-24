@@ -1,0 +1,6 @@
+{
+  "name": "Production Optimization AI Copilot",
+  "description": "Enterprise-ready AI agent & multi-agent modeling workspace for oilfield production forecasting, well performance optimization, nodal analysis, and technical diagnostics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
