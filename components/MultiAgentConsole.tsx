@@ -1,9 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Cpu, CheckCircle, Database, AlertCircle, CircleDot, Activity, Server, Clock, ChevronRight } from 'lucide-react';
+import { Well } from '../lib/oilfieldData';
 
 interface MultiAgentConsoleProps {
+  wells: Well[];
+  selectedWell: Well;
   onAudit: (action: string, details: string) => void;
 }
 
@@ -21,7 +24,53 @@ interface LogMessage {
   type: 'info' | 'thinking' | 'success' | 'alert';
 }
 
-export default function MultiAgentConsole({ onAudit }: MultiAgentConsoleProps) {
+const DEFAULT_MOCK_WELLS: Well[] = [
+  {
+    id: 'well-prod-01',
+    name: 'PROD-01',
+    status: 'OPTIMAL',
+    liftType: 'ESP',
+    measuredDepth: 8500,
+    reservoirPressure: 3200,
+    wellheadPressure: 210,
+    reservoirDepth: 8200,
+    tubingID: 2.441,
+    liquidRate: 1200,
+    oilRate: 700,
+    waterCut: 41.7,
+    gor: 320,
+    productivityIndex: 1.8,
+    skinFactor: 1.2,
+    bubblePointPressure: 1400,
+    espHz: 55,
+    activeAlerts: [],
+    diagnosticComments: 'Giếng khai thác tối ưu bằng bơm ESP tốc độ cao. Các thông số vận hành đều nằm trong biên độ thiết kế lý tưởng.',
+    history: []
+  },
+  {
+    id: 'well-prod-03',
+    name: 'PROD-03',
+    status: 'CRITICAL',
+    liftType: 'Natural Flow',
+    measuredDepth: 9100,
+    reservoirPressure: 2800,
+    wellheadPressure: 95,
+    reservoirDepth: 8800,
+    tubingID: 2.992,
+    liquidRate: 600,
+    oilRate: 570,
+    waterCut: 5.0,
+    gor: 450,
+    productivityIndex: 0.6,
+    skinFactor: 14.8,
+    bubblePointPressure: 1250,
+    activeAlerts: ['Skin Damage Alert', 'Low Productivity Index (PI < 1.0)'],
+    diagnosticComments: 'Giếng tự phun đang gặp tổn trở cơ học nghiêm trọng vùng cận đáy giếng (Skin Factor +14.8). Cần tiến hành bắn rửa acid để phục hồi lưu lượng.',
+    history: []
+  }
+];
+
+export default function MultiAgentConsole({ wells, selectedWell, onAudit }: MultiAgentConsoleProps) {
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationTitle, setSimulationTitle] = useState('All Systems Nominal');
   const [confidenceScore, setConfidenceScore] = useState<number>(0);
@@ -42,6 +91,25 @@ export default function MultiAgentConsole({ onAudit }: MultiAgentConsoleProps) {
     { time: '13:03:35', agent: 'Coordinator Agent', message: 'All 8 monitoring pipelines initialized on sandbox. Listening for SCADA triggers...', type: 'info' }
   ]);
 
+  // Compute available wells from database, excluding PROD-02 and PROD-04
+  const availableWells = useMemo(() => {
+    const rawWells = (wells && wells.length > 0 && wells[0].id !== 'well-none') ? wells : DEFAULT_MOCK_WELLS;
+    return rawWells.filter(w => {
+      const nameClean = w.name?.toUpperCase().replace(/[\s\-_]/g, '') || '';
+      return nameClean !== 'PROD02' && nameClean !== 'PROD04' && nameClean !== 'PRO02' && nameClean !== 'PRO04';
+    });
+  }, [wells]);
+
+  const [selectedTriggerWellId, setSelectedTriggerWellId] = useState<string>('');
+
+  const activeTriggerWell = useMemo(() => {
+    if (selectedTriggerWellId) {
+      const found = availableWells.find(w => w.id === selectedTriggerWellId);
+      if (found) return found;
+    }
+    return availableWells[0] || null;
+  }, [availableWells, selectedTriggerWellId]);
+
   const appendLog = (agent: string, message: string, type: 'info' | 'thinking' | 'success' | 'alert') => {
     const now = new Date();
     const timeStr = now.toTimeString().split(' ')[0];
@@ -52,116 +120,128 @@ export default function MultiAgentConsole({ onAudit }: MultiAgentConsoleProps) {
     setAgents(prev => prev.map(a => a.name === name ? { ...a, status } : a));
   };
 
-  const runWaterBreakthroughAudit = () => {
+  const runWellDiagnostics = (targetWell: Well) => {
     if (isSimulating) return;
     setIsSimulating(true);
     setConfidenceScore(0);
     setRecommendationResult(null);
-    setSimulationTitle('Water Breakthrough & Aquifer Remediation Audit');
+    setSimulationTitle(`Live SCADA Diagnostics: Well ${targetWell.name}`);
     setLogs([]);
+    setAgents(prev => prev.map(a => ({ ...a, status: 'IDLE' })));
 
-    // Step-by-step timeout logging to represent Multi-Agent workflow
+    // 1. Coordinator Agent Initialized
     setTimeout(() => {
-      appendLog('Coordinator Agent', 'Received technical request to execute water shutoff (WSO) audit on Well PROD-02.', 'info');
+      appendLog('Coordinator Agent', `Nhận yêu cầu phân tích SCADA. Đang khởi chạy quy trình giám sát đa tác nhân cho giếng ${targetWell.name} (${targetWell.liftType}).`, 'info');
       updateAgentState('Coordinator Agent', 'COMPUTING');
     }, 200);
 
+    // 2. Surveillance Agent - Water Cut & Rates
     setTimeout(() => {
-      appendLog('Surveillance Agent', 'Ingested daily water cut history. PROD-02 water cut increased from 42% to 80% with immediate reservoir fluid gradient increases.', 'info');
-      updateAgentState('Surveillance Agent', 'SUCCESS');
-    }, 1000);
-
-    setTimeout(() => {
-      appendLog('Well Diagnostics Agent', 'Evaluating injection valves and dual completions. Internal gradients confirm water breakthrough isn\'t mechanical tubing leaks. Source: Aquifer water coning.', 'thinking');
-      updateAgentState('Well Diagnostics Agent', 'SUCCESS');
-    }, 2200);
-
-    setTimeout(() => {
-      appendLog('Reservoir Analysis Agent', 'Reviewing fluid mobility ratios. Aquifer edge water drive holds pressure but restricts original oil saturation zones near-wellbore.', 'thinking');
-      updateAgentState('Reservoir Analysis Agent', 'SUCCESS');
-    }, 3400);
-
-    setTimeout(() => {
-      appendLog('Artificial Lift Agent', 'ESP output has slugged. Gas lift allocated rate of 1.2 MMscf/d is insufficient to sweep heavy water cut column safely.', 'alert');
-      updateAgentState('Artificial Lift Agent', 'SUCCESS');
-    }, 4600);
-
-    setTimeout(() => {
-      appendLog('Economic Evaluation Agent', 'Calculating financial impact. Gel water-shutoff treatment CAPEX ($145,000) vs estimated 220 bopd incremental oil. NPV = +$182,000.', 'info');
-      updateAgentState('Economic Evaluation Agent', 'SUCCESS');
-    }, 5800);
-
-    setTimeout(() => {
-      appendLog('Recommendation Agent', 'Ranked Gel Polymer treatments side-by-side with localized ESP redesign. Gel Polymer treatment yields a priority score of 82/100.', 'success');
-      updateAgentState('Recommendation Agent', 'SUCCESS');
-    }, 7000);
-
-    setTimeout(() => {
-      appendLog('Report Writer Agent', 'Generated draft SPE Water Shutoff Optimization layout in buffer caches.', 'info');
-      updateAgentState('Report Writer Agent', 'SUCCESS');
-    }, 8000);
-
-    setTimeout(() => {
-      appendLog('Coordinator Agent', 'Aggregated all sub-agent findings. Audit completed with High Confidence. Recommending localized mechanical pack-off combined with Gas Lift valve redesign.', 'success');
-      updateAgentState('Coordinator Agent', 'SUCCESS');
-      setConfidenceScore(94);
-      setRecommendationResult('ACTION RECOMMENDED: Execute mechanically seated polymer packers in PROD-02. This will seal lower high-perm water thief-zones, reducing water output from 80% to ~52%, liberating immediate pipeline capacity of 220 bopd (NPV: +$182,000).');
-      setIsSimulating(false);
-      onAudit('Water Breakthrough Audit Completed', 'Multi-Agent pipeline analyzed well PROD-02 water influx trends. Solved Gel-Polymer WSO NPV of +$182,000.');
-    }, 9000);
-  };
-
-  const runLiquidLoadingDiagnostics = () => {
-    if (isSimulating) return;
-    setIsSimulating(true);
-    setConfidenceScore(0);
-    setRecommendationResult(null);
-    setSimulationTitle('Liquid Loading & Loading Fluid Log Diagnostics');
-    setLogs([]);
-
-    setTimeout(() => {
-      appendLog('Coordinator Agent', 'Handshaking surveillance arrays on Well PROD-04. Logging intermittent flow drop-offs.', 'info');
-      updateAgentState('Coordinator Agent', 'COMPUTING');
-    }, 200);
-
-    setTimeout(() => {
-      appendLog('Surveillance Agent', 'SCADA alert active: Well ceased natural flows during testing in April. Wellhead holding static gas pressure (~45 psi).', 'alert');
+      const isHighWaterCut = targetWell.waterCut > 70;
+      const statusMsg = targetWell.status === 'DOWN' ? 'Giếng hiện đang đóng dòng (SI).' : 'Giếng đang trong trạng thái khai thác.';
+      appendLog('Surveillance Agent', `Đã phân tích lịch sử SCADA. Lưu lượng chất lỏng đạt ${targetWell.liquidRate} bpd, lưu lượng dầu đạt ${targetWell.oilRate} bopd. Tỷ lệ ngập nước (Water Cut) là ${targetWell.waterCut}%. ${statusMsg}`, isHighWaterCut ? 'alert' : 'info');
       updateAgentState('Surveillance Agent', 'SUCCESS');
     }, 1200);
 
+    // 3. Well Diagnostics Agent - Tubing layout
     setTimeout(() => {
-      appendLog('Well Diagnostics Agent', 'Tubing evaluation: 2.375" string diameter. Turner Critical Velocity math resolved: Critical sweeping gas rate = 1.8 MMcf/d. Current rate: 0.1 MMcf/d.', 'thinking');
+      appendLog('Well Diagnostics Agent', `Đánh giá thiết kế cơ học: Đường kính tubing = ${targetWell.tubingID} inches. Chiều sâu lòng giếng đạt ${targetWell.measuredDepth} ft. Tình trạng cơ học danh định.`, 'thinking');
       updateAgentState('Well Diagnostics Agent', 'SUCCESS');
-    }, 2500);
+    }, 2400);
 
+    // 4. Reservoir Analysis Agent - pressure & skin
     setTimeout(() => {
-      appendLog('Reservoir Analysis Agent', 'Reservoir pressure is 2400 psi. Formation is depletion-driven. Insufficient energy to lift fluid column naturally.', 'info');
+      const isDamaged = targetWell.skinFactor > 5;
+      const skinMsg = isDamaged 
+        ? `Phát hiện tổn thất cận đáy giếng lớn (Skin Factor S = +${targetWell.skinFactor}). Khả năng cao do lắng đọng cát lắng hoặc phân lớp hữu cơ.`
+        : `Chỉ số Skin Factor ổn định (S = +${targetWell.skinFactor}). Khả năng truyền dẫn vỉa tốt.`;
+      appendLog('Reservoir Analysis Agent', `Phân tích thông số vỉa chứa: Áp suất vỉa = ${targetWell.reservoirPressure} psi, Chỉ số năng suất PI = ${targetWell.productivityIndex} bpd/psi. ${skinMsg}`, isDamaged ? 'alert' : 'info');
       updateAgentState('Reservoir Analysis Agent', 'SUCCESS');
-    }, 3800);
+    }, 3600);
 
+    // 5. Artificial Lift Agent - lift specific parameters
     setTimeout(() => {
-      appendLog('Artificial Lift Agent', 'ESP retrofitting is unviable due to narrow 2.375" casing restriction. Recommending Plunger Lift or Velocity String retrofit.', 'info');
+      let liftMsg = `Giếng đang tự phun (Natural Flow) dựa trên áp suất vỉa tự nhiên.`;
+      if (targetWell.liftType === 'ESP') {
+        liftMsg = `Hệ thống bơm điện chìm (ESP) đang chạy ở tần số ${targetWell.espHz || 50} Hz. Kiểm tra dòng tải motor ổn định.`;
+      } else if (targetWell.liftType === 'Gas Lift') {
+        liftMsg = `Hệ thống van khai thác Gas Lift phân bổ lưu lượng bơm đạt ${targetWell.gasLiftInjectionRate || 1.2} MMscf/d.`;
+      } else if (targetWell.liftType === 'Plunger Lift') {
+        liftMsg = `Chu kỳ di chuyển của plunger hoạt động ổn định, loại bỏ hiện tượng ngập lỏng cột chất lỏng.`;
+      }
+      appendLog('Artificial Lift Agent', liftMsg, 'info');
       updateAgentState('Artificial Lift Agent', 'SUCCESS');
-    }, 5000);
+    }, 4800);
 
+    // 6. Economic Evaluation Agent - ROI/NPV
     setTimeout(() => {
-      appendLog('Economic Evaluation Agent', 'Plunger Lift deployment CAPEX = $65,000. Payback cycle = 4.2 Months. Net 12-month value = +$115,000.', 'info');
+      let treatmentType = "Tối ưu hóa chung";
+      let capex = 50000;
+      let profit = 85000;
+      
+      if (targetWell.waterCut > 70) {
+        treatmentType = "Bơm ép hóa phẩm Gel Polymer đóng nước";
+        capex = 145000;
+        profit = 182000;
+      } else if (targetWell.skinFactor > 5) {
+        treatmentType = "Bắn rửa Acid vùng cận đáy giếng";
+        capex = 120000;
+        profit = 742000;
+      } else if (targetWell.liftType === 'Natural Flow') {
+        treatmentType = "Lắp đặt và chuyển đổi sang thiết bị nâng nhân tạo (ESP)";
+        capex = 220000;
+        profit = 450000;
+      }
+      
+      appendLog('Economic Evaluation Agent', `Thẩm định hiệu quả kinh tế: Chi phí xử lý đề xuất [${treatmentType}] tương đương $${capex.toLocaleString()}. Dự kiến đem lại dòng tiền ròng NPV lũy kế tăng thêm +$${profit.toLocaleString()}.`, 'info');
       updateAgentState('Economic Evaluation Agent', 'SUCCESS');
-    }, 6200);
+    }, 6000);
 
+    // 7. Recommendation Agent - Ranking priority
     setTimeout(() => {
-      appendLog('Recommendation Agent', 'Plunger Lift candidate ranked 1st for depletion zones. Priority Index: 91/100.', 'success');
+      let priorityScore = 70;
+      if (targetWell.status === 'CRITICAL') priorityScore = 95;
+      else if (targetWell.status === 'UNDERPERFORMER') priorityScore = 80;
+      else if (targetWell.status === 'DOWN') priorityScore = 85;
+      
+      appendLog('Recommendation Agent', `Xếp hạng ưu tiên hoạt động can thiệp cho giếng ${targetWell.name}. Điểm số Copilot Priority Score đạt ${priorityScore}/100.`, 'success');
       updateAgentState('Recommendation Agent', 'SUCCESS');
-    }, 7400);
+    }, 7200);
 
+    // 8. Report Writer Agent - Documentation
     setTimeout(() => {
-      appendLog('Coordinator Agent', 'Fluid diagnostics complete. Final operational agreement: Convert PROD-04 to Plunger Lift cyclical flowing.', 'success');
+      appendLog('Report Writer Agent', `Biên soạn biểu mẫu can thiệp kỹ thuật giếng ${targetWell.name} gửi hệ thống RAG nội bộ.`, 'info');
+      updateAgentState('Report Writer Agent', 'SUCCESS');
+    }, 8200);
+
+    // 9. Coordinator Agent Wrap-Up
+    setTimeout(() => {
+      let activePriorityScore = 70;
+      if (targetWell.status === 'CRITICAL') activePriorityScore = 95;
+      else if (targetWell.status === 'UNDERPERFORMER') activePriorityScore = 80;
+      else if (targetWell.status === 'DOWN') activePriorityScore = 85;
+
+      let recAction = `Khuyến nghị duy trì chế độ giám sát dòng SCADA định kỳ cho giếng ${targetWell.name}.`;
+      if (targetWell.waterCut > 70) {
+        recAction = `HÀNH ĐỘNG KHUYẾN NGHỊ: Khai thác tầng cát phát sinh ngập nước cao (${targetWell.waterCut}%). Thực hiện đặt Packer cơ học cô lập tầng ngập nước đáy, giảm tỷ lệ ngập nước xuống dưới 52%, tức thời giải phóng công suất vận hành pipeline thêm ${Math.round(targetWell.liquidRate * 0.15)} bopd (NPV: +$182,000).`;
+      } else if (targetWell.skinFactor > 5) {
+        recAction = `HÀNH ĐỘNG KHUYẾN NGHỊ: Hệ số Skin Factor cao cực đoan (+${targetWell.skinFactor}) gây suy giảm PI. Thực hiện bắn rửa Acid hóa vỉa cát kết cận giếng (Matrix Acidizing HCl/HF) để giảm Skin về mức tối ưu +1.2. Khai thông hoàn toàn lắng đọng cát, khôi phục lưu lượng dầu +${targetWell.oilRate + 150} bopd.`;
+      } else if (targetWell.liftType === 'Natural Flow') {
+        recAction = `HÀNH ĐỘNG KHUYẾN NGHỊ: Xem xét chuyển đổi sang hệ thống bơm ESP cho giếng nhằm đối phó với hiện tượng suy giảm áp suất vỉa tự nhiên theo thời gian, đảm bảo duy trì vận tốc quét lỏng.`;
+      } else if (targetWell.liftType === 'ESP') {
+        recAction = `HÀNH ĐỘNG KHUYẾN NGHỊ: Tối ưu tần số vận hành biến tần ESP lên mức ${Math.min(65, (targetWell.espHz || 50) + 5)} Hz để ổn định vị trí tâm dốc bơm, tránh rủi ro xâm thực rotor.`;
+      } else if (targetWell.liftType === 'Gas Lift') {
+        recAction = `HÀNH ĐỘNG KHUYẾN NGHỊ: Hiệu chỉnh tăng áp suất nén khí Gas Lift thêm 0.5 MMscf/d hỗ trợ giảm tỷ trọng cột dâng nước nặng.`;
+      }
+
+      appendLog('Coordinator Agent', `Tổng hợp kết quả phân tích cho giếng ${targetWell.name}. Toàn bộ luồng phân tích hệ thống hoàn thành.`, 'success');
       updateAgentState('Coordinator Agent', 'SUCCESS');
-      setConfidenceScore(89);
-      setRecommendationResult('ACTION RECOMMENDED: Depletion has created critical liquid loading in PROD-04. Deploy a mechanical Plunger Lift system with cycling flow controls to intermittently sweep static wellbore columns. Recovers immediate flowing capacity of 55 boepd.');
+      setConfidenceScore(activePriorityScore);
+      setRecommendationResult(recAction);
       setIsSimulating(false);
-      onAudit('Liquid Loading Diagnostics Executed', 'PROD-04 analyzed for Turner critical velocities. Plunger lift recommended.');
-    }, 8500);
+      
+      onAudit('SCADA Diagnostic Executed', `Multi-Agent monitored telemetry diagnostics for well ${targetWell.name}. Resolved confidence index ${activePriorityScore}/100.`);
+    }, 9200);
   };
 
   const clearSandboxConsole = () => {
@@ -220,28 +300,38 @@ export default function MultiAgentConsole({ onAudit }: MultiAgentConsoleProps) {
           </div>
         </div>
 
-        {/* Manual selection buttons */}
-        <div className="bg-[#0B1120] border border-slate-800 p-4 rounded-xl flex flex-col space-y-2">
-          <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono mb-2 border-b border-slate-800 pb-1">SCADA Diagnostics Triggers</p>
-          <button
-            onClick={runWaterBreakthroughAudit}
-            disabled={isSimulating}
-            className="w-full text-left bg-[#050812] hover:bg-[#0B1120]/65 border border-slate-850 text-xs text-slate-200 font-mono py-2.5 px-3 rounded-lg flex items-center justify-between transition-all group disabled:opacity-50 cursor-pointer"
-          >
-            <span>Water breakthrough on PROD-02</span>
-            <ChevronRight className="w-3.5 h-3.5 text-cyan-500 group-hover:translate-x-1 transition-transform" />
-          </button>
+        {/* Dynamic selector based on available wells in database excluding PROD-02 and PROD-04 */}
+        <div className="bg-[#0B1120] border border-slate-800 p-4 rounded-xl flex flex-col space-y-3">
+          <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono mb-1 border-b border-slate-800 pb-1">SCADA Diagnostics Triggers</p>
           
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 font-mono block">DATABASE WELL SELECTOR:</span>
+            <select
+              id="scada-trigger-well-dropdown"
+              value={activeTriggerWell?.id || ''}
+              onChange={(e) => setSelectedTriggerWellId(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono py-2 px-2.5 rounded-lg focus:border-cyan-500 focus:outline-none cursor-pointer h-[36px]"
+            >
+              {availableWells.map(w => (
+                <option key={w.id} value={w.id}>
+                  {w.name} ({w.liftType} - PI: {w.productivityIndex})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
-            onClick={runLiquidLoadingDiagnostics}
-            disabled={isSimulating}
-            className="w-full text-left bg-[#050812] hover:bg-[#0B1120]/65 border border-slate-850 text-xs text-slate-200 font-mono py-2.5 px-3 rounded-lg flex items-center justify-between transition-all group disabled:opacity-50 cursor-pointer"
+            id="run-scada-well-diagnostics-btn"
+            onClick={() => activeTriggerWell && runWellDiagnostics(activeTriggerWell)}
+            disabled={isSimulating || !activeTriggerWell}
+            className="w-full text-left bg-[#050812] hover:bg-[#0B1120]/65 border border-slate-850 text-xs text-slate-205 font-mono py-2.5 px-3 rounded-lg flex items-center justify-between transition-all group disabled:opacity-50 cursor-pointer"
           >
-            <span>Liquid Loading cease on PROD-04</span>
+            <span>Run diagnostics on {activeTriggerWell?.name || 'database well'}</span>
             <ChevronRight className="w-3.5 h-3.5 text-cyan-500 group-hover:translate-x-1 transition-transform" />
           </button>
 
           <button
+            id="reset-sandbox-cores-btn"
             onClick={clearSandboxConsole}
             disabled={isSimulating}
             className="w-full bg-[#050812] hover:bg-slate-800 text-slate-300 text-[10px] uppercase font-mono font-bold py-1.5 rounded transition-all text-center mt-2 border border-slate-800 cursor-pointer"

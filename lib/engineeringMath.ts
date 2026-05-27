@@ -5,13 +5,12 @@ import { Well } from './oilfieldData';
  */
 export function forecastDecline(
   q0: number, // Initial rate (bopd or bpdf)
-  declineRateAnnual: number, // % annual nominal decline (e.g. 0.15 for 15%)
+  declineRateMonthly: number, // % monthly nominal decline (e.g. 0.015 for 1.5%)
   type: 'EXPONENTIAL' | 'HARMONIC' | 'HYPERBOLIC',
   bParameter: number = 0.5, // hyperbolic exponent (0 < b < 1)
   months: number = 12
 ): number[] {
-  const d_nominal = declineRateAnnual; // annual
-  const d_monthly = d_nominal / 12; // monthly base nominal decline
+  const d_monthly = declineRateMonthly; // monthly base nominal decline
   const forecast: number[] = [];
 
   for (let t = 1; t <= months; t++) {
@@ -37,11 +36,11 @@ export function forecastDecline(
 export function estimateReserves(
   currentRate: number,
   abandonmentRate: number,
-  declineRateAnnual: number,
+  declineRateMonthly: number, // % monthly nominal decline (e.g. 0.015 for 1.5%)
   type: 'EXPONENTIAL' | 'HARMONIC' | 'HYPERBOLIC',
   bParameter: number = 0.5
 ): { eur: number; remainingReservesMbo: number; yearsToAbandon: number } {
-  const d_nominal = declineRateAnnual; // annual nominal
+  const d_nominal = declineRateMonthly * 12; // annual nominal is 12x monthly nominal
   if (d_nominal <= 0 || currentRate <= abandonmentRate) {
     return { eur: 0, remainingReservesMbo: 0, yearsToAbandon: 0 };
   }
@@ -166,9 +165,13 @@ export function getVLPCurve(
   // At Hz = 0, ESP restriction increases friction. Hz = 55-60 boosts pressure.
   const espHead = hz > 0 ? (Math.pow(hz / 60, 2) * 1200) : 0;
 
+  // Calculate maximum productive rate of well dynamically to scale VLP curve appropriately
+  const estMaxIprRate = well.reservoirPressure * well.productivityIndex;
+  const maxWellRate = Math.max(1000, Math.ceil(estMaxIprRate / 500) * 500 + 500);
+
   for (let qStep = 1; qStep <= steps; qStep++) {
-    // Generate flow rates from 50 to 4000 bpd
-    const q = (4000 * qStep) / steps;
+    // Generate flow rates from 50 to maxWellRate bpd matching the well's real capacity range
+    const q = (maxWellRate * qStep) / steps;
     
     // Hydrostatic head (psi)
     const hydrostaticP = depth * effectiveGradient;

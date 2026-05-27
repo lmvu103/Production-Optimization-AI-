@@ -1,28 +1,23 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Well, WELLS_DATA, SPE_KNOWLEDGE_BASE } from '../lib/oilfieldData';
-import { getIPRCurve, getVLPCurve, solveOperatingPoint, calculateEconBenefit } from '../lib/engineeringMath';
-import { Activity, AlertTriangle, Cpu, Droplets, Flame, HelpCircle, HardDrive, RefreshCw, Sliders, TrendingUp, DollarSign } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Well } from '../lib/oilfieldData';
+import { Activity, AlertTriangle, Droplets, Flame, HardDrive, TrendingUp } from 'lucide-react';
 
 interface WellDashboardProps {
+  wells: Well[];
   selectedWell: Well;
   onSelectWell: (well: Well) => void;
   onAudit: (action: string, details: string) => void;
 }
 
-export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: WellDashboardProps) {
-  // Simulator tuning parameters
-  const [espHz, setEspHz] = useState<number>(selectedWell.espHz || 50);
-  const [gasLift, setGasLift] = useState<number>(selectedWell.gasLiftInjectionRate || 0.5);
-  const [choke, setChoke] = useState<number>(selectedWell.chokeSize || 48);
-
+export default function WellDashboard({ wells, selectedWell, onSelectWell, onAudit }: WellDashboardProps) {
   // Overall oilfield overview KPIs on current well data
   const fieldSummary = useMemo(() => {
     let totalOil = 0;
     let totalLiq = 0;
     let activeWellsCount = 0;
-    WELLS_DATA.forEach(w => {
+    wells.forEach(w => {
       totalOil += w.oilRate;
       totalLiq += w.liquidRate;
       if (w.status !== 'DOWN') activeWellsCount++;
@@ -33,64 +28,9 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
       totalWater: Math.round(totalLiq - totalOil),
       avgWaterCut: parseFloat(avgWaterCut.toFixed(1)),
       activeWells: activeWellsCount,
-      totalWells: WELLS_DATA.length
+      totalWells: wells.length
     };
-  }, []);
-
-  // Compute operational IPR & VLP curves with simulated sliders
-  const iprCurve = useMemo(() => {
-    return getIPRCurve(selectedWell);
-  }, [selectedWell]);
-
-  const vlpCurve = useMemo(() => {
-    // Generate VLP curve based on sliders
-    const calculatedLiftType = selectedWell.liftType;
-    return getVLPCurve(
-      selectedWell,
-      calculatedLiftType === 'Gas Lift' ? gasLift : 0,
-      calculatedLiftType === 'ESP' ? espHz : 0,
-      choke
-    );
-  }, [selectedWell, espHz, gasLift, choke]);
-
-  // Intersection solver
-  const operatingPoint = useMemo(() => {
-    return solveOperatingPoint(iprCurve, vlpCurve);
-  }, [iprCurve, vlpCurve]);
-
-  // Real-time calculations of outputs & Economics
-  const simulationResults = useMemo(() => {
-    if (!operatingPoint) {
-      return {
-        flowRate: 0,
-        oilRate: 0,
-        unstableFlow: true,
-        econ: null
-      };
-    }
-    const flowRate = operatingPoint.q;
-    const oilRate = Math.round(flowRate * (1 - selectedWell.waterCut / 100));
-    const incrementalOilBopd = Math.max(0, oilRate - selectedWell.oilRate);
-    
-    // CAPEX assumption of implementing of tune
-    let capex = 0;
-    if (selectedWell.liftType === 'ESP' && Math.abs(espHz - (selectedWell.espHz || 55)) > 1) {
-      capex = 3500; // ESP frequency change cost
-    } else if (selectedWell.liftType === 'Gas Lift' && Math.abs(gasLift - (selectedWell.gasLiftInjectionRate || 1.2)) > 0.1) {
-      capex = 2500; // gas allocation injection valving adjustment
-    } else if (choke !== selectedWell.chokeSize) {
-      capex = 1000; // Wellhead choke orientation
-    }
-
-    const econ = calculateEconBenefit(incrementalOilBopd, capex, 78, 6);
-
-    return {
-      flowRate,
-      oilRate,
-      unstableFlow: flowRate < 100, // loading danger
-      econ
-    };
-  }, [operatingPoint, selectedWell, espHz, gasLift, choke]);
+  }, [wells]);
 
   // Find candidate selection rules to show rank
   const recommendationScore = useMemo(() => {
@@ -105,57 +45,10 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
     return Math.min(98, score);
   }, [selectedWell]);
 
-  const triggerOptimizationApply = () => {
-    const details = `Optimized ${selectedWell.name}: ${
-      selectedWell.liftType === 'ESP' ? `Tuned ESP to ${espHz}Hz` : `Adjusted gas lift to ${gasLift} MMscf/d`
-    }, choke resized to ${choke}/64". Predicted oil output: ${simulationResults.oilRate} bopd. Simulating peak reservoir draw.`;
-    onAudit('Well Parameter Optimization Applied', details);
-  };
-
-  // Convert coordinate datasets to SVG space (W=500, H=280)
-  const svgCoordinates = useMemo(() => {
-    const width = 500;
-    const height = 280;
-    const padding = 40;
-
-    const maxQ = 4500;
-    const maxP = 4000;
-
-    const translatePoint = (q: number, p: number) => {
-      const x = padding + (q / maxQ) * (width - padding * 2);
-      const y = height - padding - (p / maxP) * (height - padding * 2);
-      return { x, y };
-    };
-
-    const iprPath = iprCurve.map((pt, idx) => {
-      const { x, y } = translatePoint(pt.q, pt.pwf);
-      return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
-    }).join(' ');
-
-    const vlpPath = vlpCurve.map((pt, idx) => {
-      const { x, y } = translatePoint(pt.q, pt.pwf);
-      return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
-    }).join(' ');
-
-    const opPoint = operatingPoint ? translatePoint(operatingPoint.q, operatingPoint.pwf) : null;
-
-    // generate axis labels
-    const qLabels = [1000, 2000, 3000, 4000].map(q => ({
-      val: q,
-      x: padding + (q / maxQ) * (width - padding * 2)
-    }));
-    const pLabels = [1000, 2000, 3000, 4000].map(p => ({
-      val: p,
-      y: height - padding - (p / maxP) * (height - padding * 2)
-    }));
-
-    return { iprPath, vlpPath, opPoint, qLabels, pLabels, translatePoint, padding, width, height };
-  }, [iprCurve, vlpCurve, operatingPoint]);
-
   return (
-    <div id="oilfield-dashboard-panel" className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div id="oilfield-dashboard-panel" className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
       
-      {/* SECTION 1: Field KPI Summary Banner (4 cols) */}
+      {/* SECTION 1: Field KPI Summary Banner (12 cols) */}
       <div id="field-kpi-banner" className="lg:col-span-12 grid grid-cols-2 md:grid-cols-5 gap-4 bg-[#0B1120] border border-slate-800 p-4 rounded-xl">
         <div id="kpi-oil-rate" className="flex items-center space-x-3 p-2">
           <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
@@ -189,7 +82,7 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
 
         <div id="kpi-well-status" className="flex items-center space-x-3 p-2">
           <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-lg">
-            <Activity className="w-5 h-5" />
+            <Activity className="w-5 h-5 animate-pulse" />
           </div>
           <div>
             <p className="text-xs text-slate-400 uppercase font-mono">Operations Count</p>
@@ -213,7 +106,7 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
         <div className="bg-[#0B1120] border border-slate-800 p-4 rounded-xl flex flex-col space-y-3">
           <h3 className="text-sm font-semibold tracking-wide uppercase text-slate-300 font-mono border-b border-slate-800 pb-2">Well Registry</h3>
           <div className="flex flex-col space-y-2 max-h-[460px] overflow-y-auto pr-1">
-            {WELLS_DATA.map((w) => {
+            {wells.map((w) => {
               const bgActive = selectedWell.id === w.id;
               let badgeColor = "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
               if (w.status === 'UNDERPERFORMER') badgeColor = "bg-amber-500/10 text-amber-400 border-amber-500/30";
@@ -249,16 +142,16 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
           </div>
         </div>
 
-        {/* WELL INTEGRIY NOTES */}
+        {/* WELL INTEGRITY NOTES */}
         <div className="bg-[#0B1120] border border-slate-800 p-4 rounded-xl">
           <p className="text-xs font-semibold text-cyan-400 uppercase tracking-widest font-mono mb-2">Technical Guidance</p>
           <p className="text-xs text-slate-300 leading-relaxed font-sans">
-            Use the tuning sliders in the active workspace to configure synthetic operating points for the flowing stream. Real-time hydraulic balances will solve for inflow and outflow limits.
+            Mô hình Nodal Analysis đầy đủ đã được tích hợp sang tab <b className="text-cyan-400 font-mono">Technical Calculators</b>. Hãy truy cập vào đó để hiệu chỉnh bộ khớp SCADA và phân tích lưu lượng.
           </p>
         </div>
       </div>
 
-      {/* SECTION 3: Main Active Well workspace & Nodal Analysis Graph (9 cols) */}
+      {/* SECTION 3: Main Active Well workspace (9 cols) */}
       <div id="active-well-workspace" className="lg:col-span-9 flex flex-col space-y-6">
         
         {/* Well Information & Diagnostic Details */}
@@ -278,7 +171,7 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
               <span className="text-xs font-mono text-slate-400">Copilot Priority Score</span>
               <div className="flex items-center space-x-2">
                 <span className="text-2xl font-black font-mono text-cyan-400">{recommendationScore}%</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-300 border border-cyan-800 font-medium">RANKED</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/40 text-cyan-300 border border-cyan-800 font-medium font-sans">RANKED</span>
               </div>
             </div>
           </div>
@@ -286,7 +179,7 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-[#050812] p-3 rounded-lg border border-slate-800">
               <span className="text-[10px] text-slate-400 font-mono">Productivity Index (PI)</span>
-              <p className="text-lg font-bold text-slate-100 font-mono">{selectedWell.productivityIndex} <span className="text-xs">b/d/psi</span></p>
+              <p className="text-lg font-bold text-slate-100 font-mono">{selectedWell.productivityIndex} <span className="text-xs font-sans text-slate-400">b/d/psi</span></p>
             </div>
             <div className="bg-[#050812] p-3 rounded-lg border border-slate-800">
               <span className="text-[10px] text-slate-400 font-mono">Measured Skin Factor (S)</span>
@@ -294,11 +187,11 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
             </div>
             <div className="bg-[#050812] p-3 rounded-lg border border-slate-800">
               <span className="text-[10px] text-slate-400 font-mono">Current Fluid Velocity</span>
-              <p className="text-lg font-bold text-slate-100 font-mono">{selectedWell.liquidRate} <span className="text-xs">bpd</span></p>
+              <p className="text-lg font-bold text-slate-100 font-mono">{selectedWell.liquidRate} <span className="text-xs font-sans text-slate-400">bpd</span></p>
             </div>
             <div className="bg-[#050812] p-3 rounded-lg border border-slate-800">
               <span className="text-[10px] text-slate-400 font-mono">Actual Oil Produced</span>
-              <p className="text-lg font-bold text-emerald-400 font-mono">{selectedWell.oilRate} <span className="text-xs">bopd</span></p>
+              <p className="text-lg font-bold text-emerald-400 font-mono">{selectedWell.oilRate} <span className="text-xs font-sans text-slate-400 font-bold">bopd</span></p>
             </div>
           </div>
 
@@ -323,317 +216,102 @@ export default function WellDashboard({ selectedWell, onSelectWell, onAudit }: W
           </div>
         </div>
 
-        {/* Nodal Analysis & Tuning Playground (2 side-by-side or stacked layout) */}
+        {/* Nodal Highlights / Spec Cards */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           
-          {/* Hydraulic Multi-Phase Core Simulator & Tuning Sliders */}
+          {/* Hydraulic Wellbore Mechanical Profile Card */}
           <div className="bg-[#0B1120] border border-slate-800 p-5 rounded-xl flex flex-col justify-between">
             <div>
               <div className="flex items-center space-x-2 mb-3">
-                <Sliders className="w-4 h-4 text-cyan-400" />
-                <h3 className="text-sm font-semibold tracking-wider text-slate-200 uppercase font-mono">Scenario Tuner</h3>
+                <HardDrive className="w-4 h-4 text-cyan-400" />
+                <h3 className="text-sm font-semibold tracking-wider text-slate-200 uppercase font-mono">Wellbore Profile &amp; Mechanical Layout</h3>
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4 font-sans">
-                Tweak parameters to trigger synthetic multi-phase lift curves. View real-time thermodynamic corrections dynamically plotted on the Nodal grid.
+              <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                Mechanical design configuration and thermodynamic conditions retrieved from the database structure for <span className="text-slate-300 font-bold">{selectedWell.name}</span>.
               </p>
 
-              <div className="space-y-4 border-t border-slate-800/80 pt-4">
-                {/* ESP Speed Tuning */}
-                {selectedWell.liftType === 'ESP' ? (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs font-mono">
-                      <span className="text-slate-300">ESP Motor Frequency (Hz)</span>
-                      <span className="text-emerald-400 font-bold">{espHz} Hz</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="35"
-                      max="65"
-                      step="1"
-                      value={espHz}
-                      onChange={(e) => setEspHz(parseInt(e.target.value))}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                      <span>35 Hz (Idle)</span>
-                      <span>50 Hz (Standard)</span>
-                      <span>65 Hz (Peak)</span>
-                    </div>
+              <div className="grid grid-cols-2 gap-3.5 border-t border-slate-800/80 pt-4 text-xs font-mono">
+                <div className="bg-slate-950 p-2.5 rounded border border-slate-900">
+                  <span className="text-[10px] text-slate-500 block">MEASURED DEPTH</span>
+                  <span className="text-slate-200 font-bold text-[13px]">{(selectedWell.measuredDepth || 8500).toLocaleString()} <span className="text-[10px] text-slate-500 font-sans">ft</span></span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded border border-slate-900">
+                  <span className="text-[10px] text-slate-500 block">RESERVOIR DEPTH (TVD)</span>
+                  <span className="text-slate-200 font-bold text-[13px]">{(selectedWell.reservoirDepth || 8000).toLocaleString()} <span className="text-[10px] text-slate-500 font-sans">ft</span></span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded border border-slate-900">
+                  <span className="text-[10px] text-slate-500 block">TUBING DIAMETER</span>
+                  <span className="text-slate-200 font-bold text-[13px]">{selectedWell.tubingID || 2.441} <span className="text-[10px] text-slate-500 font-sans">inch</span></span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded border border-slate-900">
+                  <span className="text-[10px] text-slate-500 block">RESERVOIR PRESSURE</span>
+                  <span className="text-slate-200 font-bold text-[13px]">{(selectedWell.reservoirPressure || 3200).toLocaleString()} <span className="text-[10px] text-slate-500 font-sans">psi</span></span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded border border-slate-950 col-span-2 flex justify-between items-center font-sans">
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-mono block font-bold">ARTIFICIAL LIFT SUITE</span>
+                    <span className="text-[#38bdf8] font-bold text-xs">{selectedWell.liftType} system active</span>
                   </div>
-                ) : selectedWell.liftType === 'Gas Lift' ? (
-                  /* Gas Lift Injection speed slider */
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs font-mono">
-                      <span className="text-slate-400">Gas Injection Allocation (MMscf/d)</span>
-                      <span className="text-emerald-400 font-bold">{gasLift} MMscf/d</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="3.0"
-                      step="0.1"
-                      value={gasLift}
-                      onChange={(e) => setGasLift(parseFloat(e.target.value))}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                      <span>0.1 (Minimum)</span>
-                      <span>1.5 (Optimum)</span>
-                      <span>3.0 (Maximum)</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-3 bg-[#050812] rounded border border-slate-800 text-xs text-slate-400 font-mono text-center">
-                    ESP or Gas Lift operations are deactivated for {selectedWell.name} (Natural flow completes drive).
-                  </div>
-                )}
-
-                {/* Choke Valve Tuning */}
-                <div className="space-y-2 border-t border-slate-800/50 pt-3">
-                  <div className="flex justify-between text-xs font-mono">
-                    <span className="text-slate-300">Wellhead Choke Size (64ths)</span>
-                    <span className="text-cyan-400 font-bold">{choke}/64&quot;</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="12"
-                    max="64"
-                    step="2"
-                    value={choke}
-                    onChange={(e) => setChoke(parseInt(e.target.value))}
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                    <span>12/64&quot; (Throttled)</span>
-                    <span>40/64&quot; (Standard)</span>
-                    <span>64/64&quot; (Fully Open)</span>
-                  </div>
+                  {selectedWell.liftType === 'Gas Lift' && (
+                    <span className="text-[11px] text-slate-400 font-mono">Rate: <b>{selectedWell.gasLiftInjectionRate || 1.2} MMscf/d</b></span>
+                  )}
+                  {selectedWell.liftType === 'ESP' && (
+                    <span className="text-[11px] text-slate-400 font-mono">Speed: <b>{selectedWell.espHz || 50} Hz</b></span>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Sim Outputs */}
-            <div className="mt-5 border-t border-slate-800/85 pt-4">
-              <div className="grid grid-cols-2 gap-4 bg-[#050812] p-3 rounded-lg border border-slate-850">
-                <div>
-                  <span className="text-[10px] text-slate-400 font-mono">Sim Liquid Yield</span>
-                  <p className="text-slate-100 font-bold font-mono text-base">
-                    {simulationResults.flowRate > 0 ? `${simulationResults.flowRate} bpd` : 'UNSTABLE FLOW'}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-mono">Sim Oil Output</span>
-                  <p className="text-emerald-400 font-bold font-mono text-base">
-                    {simulationResults.flowRate > 0 ? `${simulationResults.oilRate} bopd` : 'NO FLOW'}
-                  </p>
-                </div>
+            <div className="mt-5 pt-3.5 border-t border-slate-800/80">
+              <div className="p-3 bg-cyan-950/20 rounded border border-cyan-500/10 text-xs leading-relaxed text-slate-300">
+                <span className="text-cyan-400 font-semibold font-mono block mb-1 text-[10px]">💡 SYSTEM ANALYSIS HIGHLIGHT:</span>
+                Vận hành hệ thống khai thác tại áp suất và lưu lượng thiết kế để tránh các hiện tượng xâm thực (cavitation) của bơm ly tâm ESP hoặc hiện tượng sục khí (critical gas slugging) trong ống khai thác.
               </div>
-
-              {simulationResults.econ && simulationResults.flowRate > 0 && (
-                <div className="mt-3 leading-tight grid grid-cols-2 gap-2 text-xs font-mono bg-[#050812] p-2.5 rounded border border-slate-850">
-                  <div className="col-span-2 text-[10px] text-slate-400">SIMULATED GAIN (6 MONTHS ECONOMIC RUN):</div>
-                  <div className="text-slate-300">NPV Yield: <strong className="text-emerald-400">+${simulationResults.econ.npvUsd.toLocaleString()}</strong></div>
-                  <div className="text-slate-300">Payback: <strong className="text-cyan-400">{simulationResults.econ.paybackMonths} Months</strong></div>
-                </div>
-              )}
-
-              <button
-                id="apply-optimized-parameters-btn"
-                onClick={triggerOptimizationApply}
-                className="w-full mt-4 bg-cyan-600 hover:bg-cyan-500 text-slate-950 text-xs font-bold font-sans py-2.5 rounded-lg transition-all flex items-center justify-center space-x-1.5 active:scale-95 cursor-pointer shadow-lg shadow-cyan-950/40"
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                <span>Inject Parameters to SCADA System</span>
-              </button>
             </div>
           </div>
 
-          {/* Interactive SVG Nodal Plot */}
-          <div className="bg-[#0B1120] border border-slate-800 p-5 rounded-xl flex flex-col justify-between">
+          {/* Interactive Nodal Analysis Redirection Gateway */}
+          <div className="bg-[#0B1120] border border-orange-500/10 p-5 rounded-xl flex flex-col justify-between">
             <div>
-              <div className="flex justify-between items-center mb-3">
-                <div className="flex items-center space-x-2">
-                  <TrendingUp className="w-4 h-4 text-cyan-400" />
-                  <h3 className="text-sm font-semibold tracking-wider text-slate-200 uppercase font-mono">Nodal Analysis Plot</h3>
-                </div>
-                <div className="flex space-x-3 text-[10px] font-mono">
-                  <span className="flex items-center gap-1 text-sky-400">
-                    <span className="inline-block w-2.5 h-0.5 bg-sky-400"></span> Inflow (IPR)
-                  </span>
-                  <span className="flex items-center gap-1 text-red-400">
-                    <span className="inline-block w-2.5 h-0.5 bg-red-400"></span> Outflow (VLP)
-                  </span>
-                </div>
+              <div className="flex items-center space-x-2 mb-3">
+                <Activity className="w-4 h-4 text-orange-400 animate-pulse" />
+                <h3 className="text-sm font-semibold tracking-wider text-slate-200 uppercase font-mono">System Nodal Plot Optimization Gateway</h3>
               </div>
+              <p className="text-xs text-slate-400 leading-relaxed mb-4 font-sans">
+                Bộ công cụ tính toán và căn chỉnh điểm hoạt động hệ thống (Nodal Analysis Plot) đã được nâng cấp và chuyển vào tab <b className="text-orange-400 font-mono">Technical Calculators</b>.
+              </p>
 
-              {/* Graphic wrapper */}
-              <div className="bg-[#050812] p-2 rounded-lg border border-slate-850 flex items-center justify-center relative">
-                <svg
-                  id="nodal-analysis-svg-plot"
-                  width="100%"
-                  height="260"
-                  viewBox={`0 0 ${svgCoordinates.width} ${svgCoordinates.height}`}
-                  className="overflow-visible"
-                >
-                  {/* Grid Lines */}
-                  {svgCoordinates.qLabels.map((q, i) => (
-                    <g key={`q-grid-${i}`}>
-                      <line
-                        x1={q.x}
-                        y1={svgCoordinates.padding}
-                        x2={q.x}
-                        y2={svgCoordinates.height - svgCoordinates.padding}
-                        stroke="#1e293b"
-                        strokeDasharray="2"
-                      />
-                      <text
-                        x={q.x}
-                        y={svgCoordinates.height - svgCoordinates.padding + 16}
-                        fill="#64748b"
-                        fontSize="10"
-                        fontFamily="monospace"
-                        textAnchor="middle"
-                      >
-                        {q.val}
-                      </text>
-                    </g>
-                  ))}
-                  
-                  {svgCoordinates.pLabels.map((p, i) => (
-                    <g key={`p-grid-${i}`}>
-                      <line
-                        x1={svgCoordinates.padding}
-                        y1={p.y}
-                        x2={svgCoordinates.width - svgCoordinates.padding}
-                        y2={p.y}
-                        stroke="#1e293b"
-                        strokeDasharray="2"
-                      />
-                      <text
-                        x={svgCoordinates.padding - 8}
-                        y={p.y + 4}
-                        fill="#64748b"
-                        fontSize="10"
-                        fontFamily="monospace"
-                        textAnchor="end"
-                      >
-                        {p.val}
-                      </text>
-                    </g>
-                  ))}
-
-                  {/* Axis Borders */}
-                  <line
-                    x1={svgCoordinates.padding}
-                    y1={svgCoordinates.height - svgCoordinates.padding}
-                    x2={svgCoordinates.width - svgCoordinates.padding}
-                    y2={svgCoordinates.height - svgCoordinates.padding}
-                    stroke="#475569"
-                    strokeWidth="1.5"
-                  />
-                  <line
-                    x1={svgCoordinates.padding}
-                    y1={svgCoordinates.padding}
-                    x2={svgCoordinates.padding}
-                    y2={svgCoordinates.height - svgCoordinates.padding}
-                    stroke="#475569"
-                    strokeWidth="1.5"
-                  />
-
-                  {/* Title Labels */}
-                  <text
-                    x={svgCoordinates.width / 2}
-                    y={svgCoordinates.height - 4}
-                    fill="#94a3b8"
-                    fontSize="10"
-                    fontFamily="monospace"
-                    textAnchor="middle"
-                  >
-                    Liquid Flow Rate Q (STB/D)
-                  </text>
-                  
-                  <text
-                    x="12"
-                    y={svgCoordinates.height / 2}
-                    fill="#94a3b8"
-                    fontSize="10"
-                    fontFamily="monospace"
-                    textAnchor="middle"
-                    transform={`rotate(-90 12 ${svgCoordinates.height / 2})`}
-                  >
-                    Bottom Hole Pressure Pwf (PSI)
-                  </text>
-
-                  {/* Inflow IPR Curve */}
-                  <path
-                    d={svgCoordinates.iprPath}
-                    fill="none"
-                    stroke="#38bdf8"
-                    strokeWidth="2.5"
-                  />
-
-                  {/* Outflow VLP Curve */}
-                  <path
-                    d={svgCoordinates.vlpPath}
-                    fill="none"
-                    stroke="#f87171"
-                    strokeWidth="2.5"
-                  />
-
-                  {/* Operating Intersection Indicator */}
-                  {svgCoordinates.opPoint && (
-                    <g>
-                      <circle
-                        cx={svgCoordinates.opPoint.x}
-                        cy={svgCoordinates.opPoint.y}
-                        r="6"
-                        fill="#22c55e"
-                        stroke="#0f172a"
-                        strokeWidth="1.5"
-                      />
-                      <line
-                        x1={svgCoordinates.opPoint.x}
-                        y1={svgCoordinates.opPoint.y}
-                        x2={svgCoordinates.opPoint.x}
-                        y2={svgCoordinates.height - svgCoordinates.padding}
-                        stroke="#22c55e"
-                        strokeWidth="1"
-                        strokeDasharray="3"
-                      />
-                      <line
-                        x1={svgCoordinates.padding}
-                        y1={svgCoordinates.opPoint.y}
-                        x2={svgCoordinates.opPoint.x}
-                        y2={svgCoordinates.opPoint.y}
-                        stroke="#22c55e"
-                        strokeWidth="1"
-                        strokeDasharray="3"
-                      />
-                    </g>
-                  )}
-                </svg>
-
-                {!operatingPoint && (
-                  <div className="absolute inset-0 bg-slate-950/80 flex flex-col justify-center items-center p-4 rounded-lg">
-                    <AlertTriangle className="w-8 h-8 text-rose-500 mb-2 animate-bounce" />
-                    <p className="text-xs font-bold text-rose-300 font-mono">FLOW INSTABILITY TRIGGERED</p>
-                    <p className="text-[10px] text-slate-400 text-center leading-relaxed mt-1">
-                      WHP vertical loading gradients exceed reserve drive potential. Adjust tuning inputs to boost hydraulic pressure indices.
-                    </p>
+              <div className="space-y-3.5 border-t border-slate-800/80 pt-4 text-slate-300">
+                <div className="flex items-start space-x-3 text-xs leading-normal">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-1.5 shrink-0"></div>
+                  <div>
+                    <span className="text-slate-200 font-bold font-mono">Phân Tách Công Cụ Khai Thác:</span> Phân chia cụ thể các thông số để tính toán riêng biệt cho đường cong Inflow (IPR) và Outflow (VLP).
                   </div>
-                )}
+                </div>
+                
+                <div className="flex items-start space-x-3 text-xs leading-normal">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-1.5 shrink-0"></div>
+                  <div>
+                    <span className="text-slate-200 font-bold font-mono">Bộ Ước Lượng Độ Nhạy (Sensitivity Turner):</span> Tự do thay đổi độ ngập, cỡ ống Tubing, tần số ESP hoặc lưu lượng Gas Lift để đánh giá hiệu quả tức thời.
+                  </div>
+                </div>
+
+                <div className="flex items-start space-x-3 text-xs leading-normal">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-1.5 shrink-0"></div>
+                  <div>
+                    <span className="text-slate-200 font-bold font-mono">Cơ Chế Khớp Mô Hình Tự Động (Auto-Match):</span> Đồng bộ hóa và tự động khớp hai đường cong IPR và VLP giao nhau tại điểm đo thực tế từ hệ thống giám sát SCADA.
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="mt-3 text-[11px] text-slate-400 font-mono leading-relaxed bg-slate-950 px-3 py-2 rounded border border-slate-850">
-              <span className="text-emerald-400 font-bold">● Solved Operating Matrix:</span>{' '}
-              {operatingPoint ? (
-                <>
-                  Flow rate holds at <span className="text-slate-200 font-bold">{operatingPoint.q} bpd</span> with drawing bottomhole pressure at <span className="text-slate-200 font-bold">{operatingPoint.pwf} psi</span>.
-                </>
-              ) : (
-                <span className="text-rose-400">Shut-in occurred. Reservoir drive insufficient for lift routing boundaries.</span>
-              )}
+            <div className="mt-5 border-t border-slate-800/80 pt-4">
+              <div className="bg-slate-950 p-4 rounded border border-orange-500/10 flex flex-col items-center justify-center text-center space-y-1.5">
+                <span className="text-[10px] text-orange-400 font-mono font-bold">CALIBRATION &amp; TUNING WORKSPACE INSIDE:</span>
+                <span className="text-xs bg-orange-500/10 text-orange-300 px-3 py-1.5 border border-orange-500/20 rounded font-mono font-bold tracking-wide text-center">
+                  Technical Calculators &gt; Nodal Analysis Plot
+                </span>
+              </div>
             </div>
           </div>
 

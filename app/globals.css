@@ -1,1 +1,217 @@
 @import "tailwindcss";
+
+/* --------------------------------------------------
+   GLOBAL LIGHT THEME OVERRIDES FOR INDUSTRIAL SUITE
+   -------------------------------------------------- */
+
+body {
+  background-color: #f8fafc !important; /* light slate background */
+  color: #0f172a !important; /* ultra-dark slate text */
+}
+
+/* Master viewport containers */
+.bg-\[\#020617\] {
+  background-color: #f1f5f9 !important; /* Light cool off-white shade */
+  color: #0f172a !important;
+}
+
+.selection\:bg-cyan-950\/50::selection {
+  background-color: #cfe2ff !important;
+}
+
+/* Primary industrial panels card backings */
+.bg-\[\#0B1120\] {
+  background-color: #ffffff !important; /* Pure clinical card white */
+  color: #1e293b !important;
+}
+
+/* Secondary nested dashboards style boxes */
+.bg-\[\#050812\] {
+  background-color: #f8fafc !important; /* Slate 50 background */
+}
+
+.bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+.bg-slate-900\/30 {
+  background-color: #f1f5f9 !important;
+}
+
+.bg-[#0B1120]\/40 {
+  background-color: #f8fafc !important;
+}
+
+/* Navigation button variables & hover actions */
+.text-slate-400 {
+  color: #475569 !important; /* Slate 600 instead of muted gray */
+}
+
+.hover\:text-slate-200:hover {
+  color: #0f172a !important;
+}
+
+.hover\:bg-slate-900\/30:hover {
+  background-color: #e2e8f0 !important; /* Slate 200 light hover block */
+}
+
+/* Active tab styles button overlays */
+.bg-\[\#050812\].border-cyan-500\/30.text-cyan-400 {
+  background-color: #ecfeff !important; /* Cyan 50 accent bg */
+  border-color: #06b6d4 !important; /* Cyan 500 boundary highlight */
+  color: #0891b2 !important; /* Cyan 600 high contrast readable text */
+}
+
+/* Border overrides - convert dark panel rules to soft gray dividers */
+.border-slate-800, 
+.border-slate-850, 
+.border-slate-900 {
+  border-color: #cbd5e1 !important; /* Slate 300 clean outline border */
+}
+
+.border-r-slate-850 {
+  border-right-color: #cbd5e1 !important;
+}
+
+/* Core typography colors mapped for absolute visual accessibility on white page */
+.text-slate-100 {
+  color: #0f172a !important; /* Deep charcoal */
+}
+
+.text-slate-200 {
+  color: #1e293b !important; /* Slate 800 readable body */
+}
+
+.text-slate-250 {
+  color: #1e293b !important;
+}
+
+.text-slate-300 {
+  color: #334155 !important; /* Slate 700 */
+}
+
+.text-slate-350, 
+.text-slate-400 {
+  color: #475569 !important; /* Slate 600 */
+}
+
+.text-slate-500 {
+  color: #64748b !important; /* Slate 500 */
+}
+
+/* Contrast enhancement for neon status metrics and indicator tags */
+.text-cyan-450,
+.text-cyan-400 {
+  color: #0891b2 !important; /* Rich Cyan 600 for contrast */
+}
+
+.text-emerald-400 {
+  color: #15803d !important; /* Rich Green 700 */
+}
+
+.text-blue-400 {
+  color: #1d4ed8 !important; /* Rich Blue 700 */
+}
+
+.text-amber-400 {
+  color: #b45309 !important; /* Industrial Amber 700 */
+}
+
+.text-rose-400 {
+  color: #be123c !important; /* Alarm Red Rose 700 */
+}
+
+.text-purple-400 {
+  color: #7e22ce !important; /* Purple 700 */
+}
+
+/* Background metric panels with soft pastel light styling instead of dark status fills */
+.bg-emerald-500\/10 {
+  background-color: #f0fdf4 !important; /* soft green bg */
+  color: #15803d !important;
+}
+
+.bg-blue-500\/10 {
+  background-color: #eff6ff !important; /* soft blue bg */
+  color: #1d4ed8 !important;
+}
+
+.bg-amber-500\/10 {
+  background-color: #fffbeb !important; /* soft amber bg */
+  color: #b45309 !important;
+}
+
+.bg-purple-500\/10 {
+  background-color: #faf5ff !important; /* soft purple bg */
+  color: #7e22ce !important;
+}
+
+.bg-cyan-500\/10 {
+  background-color: #ecfeff !important; /* soft cyan bg */
+  color: #0891b2 !important;
+}
+
+.bg-cyan-950\/20 {
+  background-color: #ecfeff !important;
+  border-color: #0891b2 !important;
+}
+
+.bg-cyan-950\/40 {
+  background-color: #cffafe !important;
+  color: #0e7490 !important;
+}
+
+.bg-rose-500\/5, .bg-rose-500\/20 {
+  background-color: #fff1f2 !important;
+  border-color: #fda4af !important;
+  color: #9f1239 !important;
+}
+
+.text-rose-300 {
+  color: #9f1239 !important;
+}
+
+/* Technical graph axes metrics */
+#nodal-analysis-svg-plot line {
+  stroke: #cbd5e1 !important; /* Slate 300 plotting grids */
+}
+
+svg text {
+  fill: #64748b !important; /* Slate 500 readable typography inside SVG */
+}
+
+/* User chat bubble */
+.bg-cyan-950\/20 {
+  background-color: #e0f7fa !important;
+  border-color: #26c6da !important;
+  color: #006064 !important;
+}
+
+input[type="range"] {
+  background-color: #e2e8f0 !important;
+}
+
+/* Overrides for textareas and command inputs */
+input[type="text"], textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+input[type="text"]:focus, textarea:focus {
+  border-color: #06b6d4 !important;
+}
+
+/* Multi-agent dialogue console bubble light adjustments */
+.bg-slate-900\/50 {
+  background-color: #f1f5f9 !important;
+}
+
+/* Custom scrollbar alignment */
+::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1 !important;
+}
+
+::-webkit-scrollbar-track {
+  background-color: #f1f5f9 !important;
+}

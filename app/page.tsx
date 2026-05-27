@@ -2,19 +2,24 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Well, WELLS_DATA, AuditTrail, INITIAL_AUDIT_TRAIL } from '../lib/oilfieldData';
+import { Well, WELLS_DATA, AuditTrail, INITIAL_AUDIT_TRAIL, DUMMY_FALLBACK_WELL } from '../lib/oilfieldData';
+import KnowledgeBase from '../components/KnowledgeBase';
 import WellDashboard from '../components/WellDashboard';
 import TechnicalCalculators from '../components/TechnicalCalculators';
 import MultiAgentConsole from '../components/MultiAgentConsole';
-import KnowledgeBase from '../components/KnowledgeBase';
 import ReportWriter from '../components/ReportWriter';
 import AIChatCopilot from '../components/AIChatCopilot';
 import { Cpu, LayoutDashboard, Calculator, Network, BookOpen, FileText, Bot, Shield, List, Clock } from 'lucide-react';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calculators' | 'agents' | 'rag' | 'reports' | 'chat'>('dashboard');
-  const [currentWell, setCurrentWell] = useState<Well>(WELLS_DATA[1]); // Default to PROD-02 (underperforming GL) to immediately display diagnostic power!
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calculators' | 'agents' | 'rag' | 'reports' | 'chat'>('rag');
+  const [wells, setWells] = useState<Well[]>(WELLS_DATA);
+  const [currentWellId, setCurrentWellId] = useState<string | null>(null);
   const [auditTrail, setAuditTrail] = useState<AuditTrail[]>(INITIAL_AUDIT_TRAIL);
+
+  const currentWell = React.useMemo(() => {
+    return wells.find(w => w.id === currentWellId) || wells[0] || DUMMY_FALLBACK_WELL;
+  }, [wells, currentWellId]);
 
   const addNewAuditEntry = (action: string, details: string) => {
     const now = new Date();
@@ -29,7 +34,7 @@ export default function Home() {
   };
 
   const selectActiveWell = (well: Well) => {
-    setCurrentWell(well);
+    setCurrentWellId(well.id);
     addNewAuditEntry('Well Context Switched', `Switched telemetry monitoring focus to well ${well.name} (${well.liftType}).`);
   };
 
@@ -75,10 +80,10 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-1 overflow-x-auto py-2 no-scrollbar">
             {[
+              { id: 'rag', label: 'Data Upload', icon: BookOpen },
               { id: 'dashboard', label: 'Surveillance Command', icon: LayoutDashboard },
               { id: 'calculators', label: 'Technical Calculators', icon: Calculator },
               { id: 'agents', label: 'Multi-Agent Sandbox', icon: Network },
-              { id: 'rag', label: 'Grounding Library', icon: BookOpen },
               { id: 'reports', label: 'PDF Report Writer', icon: FileText },
               { id: 'chat', label: 'QA Engine Workspace', icon: Bot },
             ].map((tab) => {
@@ -116,6 +121,7 @@ export default function Home() {
           >
             {activeTab === 'dashboard' && (
               <WellDashboard 
+                wells={wells}
                 selectedWell={currentWell} 
                 onSelectWell={selectActiveWell} 
                 onAudit={addNewAuditEntry}
@@ -124,18 +130,46 @@ export default function Home() {
 
             {activeTab === 'calculators' && (
               <TechnicalCalculators 
+                wells={wells}
+                selectedWell={currentWell}
+                onSelectWell={(id) => {
+                  const targetWell = wells.find(w => w.id === id);
+                  if (targetWell) selectActiveWell(targetWell);
+                }}
                 onAudit={addNewAuditEntry}
               />
             )}
 
             {activeTab === 'agents' && (
               <MultiAgentConsole 
+                wells={wells}
+                selectedWell={currentWell}
                 onAudit={addNewAuditEntry}
               />
             )}
 
             {activeTab === 'rag' && (
               <KnowledgeBase 
+                wells={wells}
+                selectedWell={currentWell}
+                onSelectWell={selectActiveWell}
+                onWellsUpdate={(newWells) => {
+                  setWells(prev => {
+                    const updated = [...prev];
+                    newWells.forEach(nw => {
+                      const idx = updated.findIndex(w => w.name.toLowerCase() === nw.name.toLowerCase() || w.id === nw.id);
+                      if (idx !== -1) {
+                        updated[idx] = nw;
+                      } else {
+                        updated.push(nw);
+                      }
+                    });
+                    return updated;
+                  });
+                  if (newWells.length > 0) {
+                    setCurrentWellId(newWells[0].id);
+                  }
+                }}
                 onAudit={addNewAuditEntry}
               />
             )}
@@ -156,45 +190,6 @@ export default function Home() {
           </motion.div>
         </AnimatePresence>
       </main>
-
-      {/* 4. REAL-TIME AI AUDIT TRAIL SCULLING TABLE */}
-      <footer className="bg-[#0B1120] border-t border-slate-800 p-4 shrink-0 font-mono text-[10px]">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between gap-6">
-          
-          <div className="md:w-1/3 space-y-2">
-            <div className="flex items-center space-x-2 text-cyan-400">
-              <Shield className="w-4 h-4" />
-              <span className="font-bold uppercase tracking-wider">SCADA Surveillance Logs</span>
-            </div>
-            <p className="text-[10px] text-slate-500 leading-relaxed font-sans">
-              All pipeline processes, calculations, file uploads, and diagnostic audits completed are securely captured. These are stored on-workspace for regulatory compliance.
-            </p>
-          </div>
-
-          <div className="md:w-2/3 border border-slate-800 rounded-lg overflow-hidden bg-[#050812] flex flex-col justify-between">
-            <div className="bg-[#0B1120]/60 px-3 py-1.5 border-b border-slate-800 flex justify-between items-center font-bold">
-              <span className="text-slate-400 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" /> SECURE AUDIT LEDGER LOGS
-              </span>
-              <span className="text-[9px] text-emerald-400">● MULTIPLE PIPELINES STABLE</span>
-            </div>
-
-            <div className="max-h-[90px] overflow-y-auto px-3 py-2 space-y-2 divider-slate-800 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-slate-950">
-              {auditTrail.map((log, idx) => (
-                <div key={idx} className="flex flex-col md:flex-row justify-between items-start border-b border-slate-900 pb-1.5 last:border-0 last:pb-0 gap-1.5 md:gap-4 text-xs">
-                  <span className="text-slate-600 shrink-0">{log.timestamp}</span>
-                  <div className="flex-1">
-                    <span className="text-cyan-400 font-bold">[{log.action}]</span>{' '}
-                    <span className="text-slate-350">{log.details}</span>
-                  </div>
-                  <span className="text-slate-500 italic shrink-0">by {log.agent}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </div>
-      </footer>
 
     </div>
   );

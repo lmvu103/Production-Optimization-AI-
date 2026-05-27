@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Well } from '../lib/oilfieldData';
-import { Bot, User, Send, Sparkles, RefreshCw, Layers, ShieldCheck } from 'lucide-react';
+import { Well, SPE_KNOWLEDGE_BASE, SPEPaper } from '../lib/oilfieldData';
+import { Bot, User, Send, Sparkles, RefreshCw, Layers, ShieldCheck, Search, BookOpen } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -37,6 +37,21 @@ Hãy chọn một câu hỏi gợi ý bên dưới hoặc nhập câu hỏi tr�
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
+  // SPE papers inside AI workspace
+  const [sidebarTab, setSidebarTab] = useState<'telemetry' | 'spe'>('spe');
+  const [speSearchQuery, setSpeSearchQuery] = useState('');
+  const [activeCopilotPaper, setActiveCopilotPaper] = useState<SPEPaper | null>(SPE_KNOWLEDGE_BASE[0]);
+  
+  const filteredSpePapers = React.useMemo(() => {
+    if (!speSearchQuery) return SPE_KNOWLEDGE_BASE;
+    return SPE_KNOWLEDGE_BASE.filter(p => 
+      p.title.toLowerCase().includes(speSearchQuery.toLowerCase()) ||
+      p.code.toLowerCase().includes(speSearchQuery.toLowerCase()) ||
+      p.category.toLowerCase().includes(speSearchQuery.toLowerCase()) ||
+      p.summary.toLowerCase().includes(speSearchQuery.toLowerCase())
+    );
+  }, [speSearchQuery]);
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto scroll logs
@@ -123,24 +138,116 @@ Hãy chọn một câu hỏi gợi ý bên dưới hoặc nhập câu hỏi tr�
     <div id="ai-copilot-container" className="flex flex-col lg:flex-row gap-6 bg-[#0B1120] border border-slate-800 rounded-xl overflow-hidden shadow-xl min-h-[500px]">
       
       {/* Dynamic parameters briefing (3 cols) */}
-      <div id="ai-chat-parameter-briefing" className="lg:col-span-4 bg-[#0B1120] p-4 border-r lg:border-r border-slate-850 flex flex-col justify-between shrink-0">
+      <div id="ai-chat-parameter-briefing" className="lg:col-span-4 bg-[#0B1120] p-4 border-r lg:border-r border-slate-850 flex flex-col justify-between shrink-0 lg:w-[350px]">
         <div className="space-y-4">
-          <div className="flex items-center space-x-2 border-b border-slate-800 pb-2.5">
-            <Layers className="w-4 h-4 text-cyan-400 font-bold" />
-            <span className="text-xs font-bold tracking-widest text-slate-400 uppercase font-mono">Telemetry Datafeed</span>
+          
+          {/* Sub Tab Navigation */}
+          <div className="flex bg-[#050812] p-1 rounded-lg border border-slate-800">
+            <button
+              onClick={() => setSidebarTab('telemetry')}
+              className={`flex-1 text-center py-1.5 rounded text-[10px] uppercase font-mono font-bold tracking-wider transition-all ${
+                sidebarTab === 'telemetry' 
+                  ? 'bg-slate-800 text-cyan-400 border border-slate-700/60 font-semibold' 
+                  : 'text-slate-500 hover:text-slate-350'
+              }`}
+            >
+              Telemetry feed
+            </button>
+            <button
+              onClick={() => setSidebarTab('spe')}
+              className={`flex-1 text-center py-1.5 rounded text-[10px] uppercase font-mono font-bold tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                sidebarTab === 'spe' 
+                  ? 'bg-slate-800 text-cyan-400 border border-slate-700/60 font-semibold' 
+                  : 'text-slate-500 hover:text-slate-350'
+              }`}
+            >
+              <BookOpen className="w-3 h-3" /> SPE Papers
+            </button>
           </div>
 
-          <div className="bg-[#050812] p-3 rounded-lg border border-slate-850 space-y-3 font-mono text-xs">
-            <span className="text-cyan-400 font-bold block">ACTIVE WELL TELEMETRY:</span>
-            <div className="space-y-1.5 break-all">
-              <div>Bore Hole ID: <strong className="text-slate-250">{selectedWell.name}</strong></div>
-              <div>Lift Type: <strong className="text-slate-250">{selectedWell.liftType}</strong></div>
-              <div>Liquid Flow: <strong className="text-slate-250">{selectedWell.liquidRate} bpd</strong></div>
-              <div>Water Cut: <strong className="text-blue-400">{selectedWell.waterCut}%</strong></div>
-              <div>Oil Clean: <strong className="text-emerald-400">{selectedWell.oilRate} bopd</strong></div>
-              <div>Formation Skin: <strong className={selectedWell.skinFactor > 8 ? "text-rose-400" : "text-slate-250"}>{selectedWell.skinFactor}</strong></div>
+          {sidebarTab === 'telemetry' ? (
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
+                <Layers className="w-4 h-4 text-cyan-400 font-bold" />
+                <span className="text-xs font-bold tracking-widest text-slate-400 uppercase font-mono">Telemetry Datafeed</span>
+              </div>
+
+              <div className="bg-[#050812] p-3 rounded-lg border border-slate-850 space-y-3 font-mono text-xs">
+                <span className="text-cyan-400 font-bold block">ACTIVE WELL TELEMETRY:</span>
+                <div className="space-y-1.5 break-all">
+                  <div>Bore Hole ID: <strong className="text-slate-250">{selectedWell.name}</strong></div>
+                  <div>Lift Type: <strong className="text-slate-250">{selectedWell.liftType}</strong></div>
+                  <div>Liquid Flow: <strong className="text-slate-250">{selectedWell.liquidRate} bpd</strong></div>
+                  <div>Water Cut: <strong className="text-blue-400">{selectedWell.waterCut}%</strong></div>
+                  <div>Oil Clean: <strong className="text-emerald-400">{selectedWell.oilRate} bopd</strong></div>
+                  <div>Formation Skin: <strong className={selectedWell.skinFactor > 8 ? "text-rose-400" : "text-slate-250"}>{selectedWell.skinFactor}</strong></div>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
+                <BookOpen className="w-4 h-4 text-cyan-400 font-bold" />
+                <span className="text-xs font-bold tracking-widest text-slate-400 uppercase font-mono">SPE Grounding reference</span>
+              </div>
+
+              {/* Compact search input */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={speSearchQuery}
+                  placeholder="Kiếm cứu tài liệu SPE..."
+                  onChange={(e) => setSpeSearchQuery(e.target.value)}
+                  className="w-full bg-[#050812] text-[10px] text-slate-100 font-mono pl-8 pr-2 py-1.5 border border-slate-850 rounded-lg focus:border-cyan-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Filtered list of papers */}
+              <div className="space-y-1 max-h-[130px] overflow-y-auto pr-1 scrollbar-thin">
+                {filteredSpePapers.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setActiveCopilotPaper(p)}
+                    className={`w-full text-left p-1.5 rounded border text-[10px] font-mono transition-all block cursor-pointer ${
+                      activeCopilotPaper?.id === p.id 
+                        ? 'bg-slate-855 border-cyan-500/50 text-cyan-400' 
+                        : 'bg-[#050812] border-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center opacity-75 text-[8px] mb-0.5">
+                      <span>{p.code}</span>
+                      <span>{p.category}</span>
+                    </div>
+                    <p className="font-semibold truncate leading-none">{p.title}</p>
+                  </button>
+                ))}
+              </div>
+
+              {/* Active paper details */}
+              {activeCopilotPaper && (
+                <div className="bg-[#050812] p-2.5 rounded border border-slate-850 space-y-1.5 text-[10px] max-h-[190px] overflow-y-auto scrollbar-thin">
+                  <div className="border-b border-slate-850 pb-1 flex justify-between items-center">
+                    <span className="font-bold text-slate-300 font-mono text-[9px] uppercase tracking-wider">{activeCopilotPaper.code}</span>
+                    <span className="text-[8px] bg-slate-800 text-slate-400 font-mono px-1 py-0.5 rounded leading-none">{activeCopilotPaper.year}</span>
+                  </div>
+                  <p className="font-bold text-slate-200 leading-tight">{activeCopilotPaper.title}</p>
+                  <p className="text-slate-400 leading-normal font-sans text-[9px] line-clamp-3">{activeCopilotPaper.summary}</p>
+                  
+                  <button
+                    onClick={() => {
+                      sendMessage(`Hãy tư vấn chi tiết về tài liệu ${activeCopilotPaper.code} ("${activeCopilotPaper.title}") có các chỉ dẫn: ${activeCopilotPaper.guidelines.join('; ')}. Hãy áp dụng nghiên cứu này để chẩn đoán hoặc đưa ra giải pháp vận hành tối ưu cho giếng ${selectedWell.name} (${selectedWell.liftType}).`);
+                      onAudit('SPE Paper Injected Into Copilot', `Consulted paper ${activeCopilotPaper.code} guidelines for well ${selectedWell.name}`);
+                    }}
+                    className="w-full bg-cyan-950/40 hover:bg-cyan-900/40 text-cyan-400 border border-cyan-800/30 font-mono py-1 rounded text-[9px] font-bold uppercase transition-all mt-1 cursor-pointer flex items-center justify-center gap-1"
+                  >
+                    ✦ Chat về tài liệu này
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
 
         <div className="mt-4 pt-3 border-t border-slate-850">
