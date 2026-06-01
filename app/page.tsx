@@ -177,6 +177,7 @@ export default function Home() {
             {activeTab === 'reports' && (
               <ReportWriter 
                 selectedWell={currentWell} 
+                wells={wells}
                 onAudit={addNewAuditEntry}
               />
             )}

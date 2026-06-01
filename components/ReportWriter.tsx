@@ -6,127 +6,197 @@ import { FileDown, Calendar, Printer, RefreshCw, Layers, ShieldCheck, AlertCircl
 
 interface ReportWriterProps {
   selectedWell: Well;
+  wells?: Well[];
   onAudit: (action: string, details: string) => void;
 }
 
-export default function ReportWriter({ selectedWell, onAudit }: ReportWriterProps) {
+export default function ReportWriter({ selectedWell, wells, onAudit }: ReportWriterProps) {
   const [reportType, setReportType] = useState<string>('Daily Production Summary');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generatedContent, setGeneratedContent] = useState<string | null>(null);
   const [showPrintOption, setShowPrintOption] = useState<boolean>(false);
 
-  // Programmatically constructs static local high-quality templates if AI is offline
-  const generateOfflineReport = (type: string, well: Well) => {
+  // Programmatically constructs dynamic high-quality templates if AI is offline
+  const generateOfflineReport = (type: string, well: Well, allWells: Well[] = []) => {
     let rawText = '';
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
     
+    // Build a cohesive well list including current well and other wells as fallbacks
+    const list = (allWells && allWells.length > 0)
+      ? allWells
+      : [
+          well,
+          { id: 'well-prod-01', name: 'PROD-01', status: 'OPTIMAL', liftType: 'ESP', liquidRate: 2800, oilRate: 700, waterCut: 75, skinFactor: 1.2, productivityIndex: 1.8 } as Well,
+          { id: 'well-prod-02', name: 'PROD-02', status: 'UNDERPERFORMER', liftType: 'Gas Lift', liquidRate: 1900, oilRate: 385, waterCut: 80, skinFactor: 2.5, productivityIndex: 1.2 } as Well,
+          { id: 'well-prod-03', name: 'PROD-03', status: 'CRITICAL', liftType: 'Natural Flow', liquidRate: 600, oilRate: 570, waterCut: 5, skinFactor: 14.8, productivityIndex: 0.6 } as Well,
+        ].filter((w, i, self) => self.findIndex(x => x.name === w.name) === i);
+
     if (type === 'Daily Production Summary') {
+      const activeWellsStr = list.map(w => 
+        `| ${w.name} | ${w.liftType} | ${w.oilRate} | ${w.waterCut}% | ${w.liquidRate || Math.round(w.oilRate / (1 - w.waterCut / 100) || w.oilRate)} | ${w.skinFactor !== undefined ? `+${w.skinFactor}` : '+1.5'} (${w.status}) |`
+      ).join('\n');
+
+      const totalOil = list.reduce((acc, w) => acc + (w.oilRate || 0), 0);
+      const avgWaterCut = (list.reduce((acc, w) => acc + (w.waterCut || 0), 0) / list.length).toFixed(1);
+
       rawText = `
 # EXECUTIVE DAILY PRODUCTION SUMMARY REPORT
 **BLOCK-A PETROLEUM OPERATING AREA**
 *Date Simulated: ${now}Z*
-*Status Assessment: SECURE - ALL HANDSHAKES NOMINAL*
+*Status Assessment: SECURE - ACTIVE FOCUS ON TARGET WELL: ${well.name}*
 
 ---
 
-## 1. WELLHEAD PRODUCTION SUMMARY INDEX
-| Well Identifier | Completion Lift Type | Oil Output (BOPD) | Water Cut (%) | Total Liquid (BFPD) | Skin Factor |
+## 1. WELLHEAD PRODUCTION SUMMARY INDEX (DYNAMIC DATABASE ACTIVE)
+| Well Identifier | Completion Lift Type | Oil Output (BOPD) | Water Cut (%) | Total Liquid (BFPD) | Skin Factor (Status) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| PROD-01 | ESP Power Lift | 700 | 75% | 2800 | +1.2 (Nominal) |
-| PROD-02 | Gas Lift Allocated | 380 | 80% | 1900 | +2.5 (Mild) |
-| PROD-03 | Natural Flow | 570 | 5% | 600 | +14.8 (Critical) |
-| PROD-04 | Natural Loading | 0 | - | 0 | +3.2 (Depleted) |
+${activeWellsStr}
 
-**TOTAL DAILY FIELD OIL PRODUCTION:** **1,650 BOPD**
-**AVERAGE FIELD FLUID HYDROSTATIC GRADIENT:** **0.385 psi/ft**
+**TOTAL DAILY ACTIVE FIELD OIL PRODUCTION:** **${totalOil.toLocaleString()} BOPD**
+**AVERAGE FIELD FLUID WATER CUT:** **${avgWaterCut}%**
 
 ---
 
-## 2. SURVEILLANCE & FIELD ALERTS REVIEW
-*   **PROD-02:** Experienced significant aquifer edge-water breakthrough on May 24. Instant water cut increased from 42% to 80%. Recommending polymer-based chemical WSO sealing treatments.
-*   **PROD-03:** Skin damage holds at a critical +14.8. Wellbore PI has suffered a 64% degradation. Primary target for sand cleaning acid washes.
-*   **PROD-04:** Critical liquid loading. High-velocity gas sweeping criteria is unmet. Ceased flow of static column occurring.
+## 2. ACTIVE TARGET REVIEW: ${well.name} (${well.status})
+*   **Operational Directives**: The agent team has targeted **${well.name}** for rigorous optimization.
+*   **Water Cut Status**: Standing at **${well.waterCut}%**. ${well.waterCut > 70 ? 'Water cut is critically close to critical aquifer boundary thresholds. Polymer WSO treatment active.' : 'Water influx is stable and within reservoir limits.'}
+*   **Skin (Formation Damage)**: Skin index verified at **+${well.skinFactor || '1.5'}**. ${well.skinFactor !== undefined && well.skinFactor > 5 ? 'High restriction skin requires acid cleaning stimulation immediately.' : 'Near-wellbore skin is nominal; natural flowing potential looks intact.'}
+*   **Flow Type**: Utilizing **${well.liftType}** layout.
 
 ---
 
-## 3. MULTI-AGENT REASONING REMEDIATION RESOLVES
-Our team of coordination agents have solved the following operational candidates:
-1.  **Reservoir Agent:** Edge fluid pressure support holds at 3,200 psi on PROD-01, confirming stable geological reservoir drive.
-2.  **Diagnostics Agent:** Identified restriction damage as primary well performance barrier on PROD-03.
-3.  **Economic Agent:** Gel polymer WSO on PROD-02 yields high-margin ROI of 125% with $145,000 CAPEX.
+## 3. MULTI-AGENT SEGMENTED RESOLUTIONS SUMMARY
+*   **Surveillance Agent**: Confirms active parameters for well **${well.name}** flowing oil rate at **${well.oilRate} bopd** and liquid rate of **${well.liquidRate} bpd**.
+*   **Well Diagnostics Agent**: Checked drawdown mechanics. Skin value of **+${well.skinFactor || '1.5'}** indicates ${well.skinFactor !== undefined && well.skinFactor > 5 ? 'severe geological choke restriction' : 'acceptable flow pathway cleanliness'}.
+*   **Economic Agent**: Proposes intervention matching ${well.liftType === 'Natural Flow' ? 'ESP retrofit' : 'pumping optimization'} with CAPEX estimation returning high payback index.
 `;
     } else if (type === 'Well Review Report') {
+      const isDamaged = (well.skinFactor || 0) > 5;
+      const isHighWaterCut = well.waterCut > 70;
+      
       rawText = `
 # INDIVIDUAL WELL PERFORMANCE DIAGNOSIS
 **WELL REFERENCE: ${well.name}**
 *Audit Timestamp: ${now}Z*
-*Engineering Priority Score: 92/100*
+*Operational Status: ${well.status}*
+*Recommended Eng Priority Score: ${well.status === 'CRITICAL' ? '96/100' : well.status === 'UNDERPERFORMER' ? '82/100' : '71/100'}*
 
 ---
 
-## 1. COMPLETION SPECS & HISTOGRAM
+## 1. COMPLETION SPECS & SCADA TELEMETRY
 *   **Completion Lift Installed:** ${well.liftType} System
-*   **Measured Bore Hole Depth:** ${well.measuredDepth} ft
-*   **Reservoir Operating Pressure:** ${well.reservoirPressure} psi
-*   **Productivity index (PI):** ${well.productivityIndex} stb/d/psi
-*   **Wellbore Skin Factor (S):** ${well.skinFactor}
+*   **Measured Bore Hole Depth:** ${well.measuredDepth || 9800} ft
+*   **Reservoir Operating Pressure:** ${well.reservoirPressure || 3000} psi
+*   **Productivity index (PI):** ${well.productivityIndex || 1.2} stb/d/psi
+*   **Wellbore Skin Factor (S):** +${well.skinFactor || 1.5}
+*   **Fluid Properties**: Oil rate = **${well.oilRate} bopd**, Water Cut = **${well.waterCut}%**, Gas-Oil-Ratio = **${well.gor || 350} scf/bbl**
 
 ---
 
-## 2. INDEPENDENT AGENT AUDIT TRAILS
-*   **Surveillance Agent:** Status flag registered as ${well.status}. Actual flowing production output holds at ${well.oilRate} bopd.
-*   **Artificial Lift Specialist:** Evaluated thermodynamic pumping efficiency. ESP operating within safe limits.
-*   **Economic Evaluation Agent:** Incremental gains simulation predicts up to +120 bopd recovery on next scheduling tuning. Estimated Net Present Value holds at +$115,000.
+## 2. INDEPENDENT AGENT AUDIT TRAILS FOR ${well.name}
+*   **Surveillance Agent**: SCADA feed registers actual liquid flowing at **${well.liquidRate || well.oilRate} bpd**. Status flag is set to **${well.status}**.
+*   **Well Diagnostics Agent**: Checked inflow performance relationships. ${isDamaged ? `Well experiences extreme damage barrier near reservoir sand faces (Skin: S=+${well.skinFactor}). Recommendation is Matrix Sandstone Sand Washing.` : `Near wellbore is clean (Skin: S=+${well.skinFactor}). Hydraulics are nominal.`}
+*   **Artificial Lift Specialist**: Measured ${well.liftType === 'ESP' ? `electric motor parameters. Current ESP frequency is ${well.espHz || 55} Hz.` : well.liftType === 'Gas Lift' ? `gas allocation controls. Lift rate set at ${well.gasLiftInjectionRate || 1.2} MMscf/d.` : `thermodynamic energy gradients. Pressure is self-sufficient but prone to drawdown water breakthrough.`}
+*   **Economic Evaluation Agent**: Estimates localized remedial optimization yields NPV of **+$${isHighWaterCut ? '182,000' : isDamaged ? '742,000' : '115,000'}** with payback occurring within 3-4 months.
 
 ---
 
 ## 3. RECOMMENDED CORRECTIVE MILESTONES
-1.  Review wellhead choke restrictions.
-2.  Schedule high pressure sand solvent fluid washes.
-3.  Deploy next logging instrumentation survey inside casing string.
+1.  **Immediate Interventions**: ${isDamaged ? 'Mobilize Matrix Stimulation crew with HCl/HF sand wash blends.' : isHighWaterCut ? 'Run polymer mechanical gel-pack-off log to seal bottom thief zone water cones.' : 'Calibrate ESP/Choke settings to optimize flowing drawdowns.'}
+2.  **Telemetry Handshake**: Re-sync SCADA frequency telemetry inside the Data Upload workspace to verify stabilization.
+3.  **Pressure Survey**: Conduct transient pressure build-up logs inside next routine tubing intervention cycle.
 `;
     } else if (type === 'Production Optimization Report') {
+      const hasESP = well.liftType === 'ESP';
+      const hasGL = well.liftType === 'Gas Lift';
+      const isDamaged = (well.skinFactor || 0) > 5;
+
+      let specChange = '';
+      let estGainText = '';
+      if (hasESP) {
+        specChange = `Increase variable speed drive (ESP frequency) from ${well.espHz || 55} Hz to ${Math.min(65, (well.espHz || 55) + 5)} Hz.`;
+        estGainText = `**+45 BOPD**`;
+      } else if (hasGL) {
+        specChange = `Increase gas lift injection volumes from ${well.gasLiftInjectionRate || 1.2} MMscf/d to ${(well.gasLiftInjectionRate || 1.2) + 0.6} MMscf/d.`;
+        estGainText = `**+35 BOPD**`;
+      } else if (isDamaged) {
+        specChange = `Acid inject sandstone matrix chemical clean washes to dissolve Skin damage from +${well.skinFactor} to +1.2.`;
+        estGainText = `**+420 BOPD**`;
+      } else {
+        specChange = `Retrofit installation of automated plunger cycling lift or convert to active ESP lift.`;
+        estGainText = `**+85 BOPD**`;
+      }
+
       rawText = `
 # PRODUCTION OPTIMIZATION & RE-DESIGN REPORT
-**RESERVOIR HYDRAULIC REDESIGN & LIFT SCHEDULES**
+**RESERVOIR HYDRAULIC REDESIGN & LIFT SCHEDULES FOR WELL: ${well.name}**
 *Forecast Run: ${now}Z*
+*Active Technology Focus: ${well.liftType} Optimization*
 
 ---
 
-## 1. ESCALATION SCENARIOS SCREENING
-Underperforming wells have been run through hydraulic nodal analysis simulation models to isolate optimization reserves:
-1.  **PROD-02 (Gas Lift):** Adjust gas injection allocation from 1.2 MMscf/d to 1.8 MMscf/d. This lowers hydrostatic column friction constraints. Est Gain: **+45 bopd**.
-2.  **PROD-03 (Skin Damage):** Acid wash reperforation to reduce Skin from +14.8 to +1.2. Est Gain: **+420 bopd**.
-3.  **PROD-01 (ESP):** Optimize Variable Speed frequency drive to 58 Hz. Est Gain: **+25 bopd**.
+## 1. ESCALATION SCENARIOS SCREENING (TARGET FOCUS: ${well.name})
+Dynamic nodal analysis simulations have been executed to evaluate backpressure, drawdown gradients, and maximum fluid potential:
+
+1.  **Choke Tuning**: Well is flowing on a **${well.chokeSize || 48}/64"** choke. Small choke opening limits drawdown, while too large risks water breakthroughs.
+2.  **Lift Equipment Recommendation**:
+    *   **Proposed Operation**: ${specChange}
+    *   **Incremental Reservoir Potential**: Estimated Gain: ${estGainText}
+3.  **Boundary Constraints**: Stable reservoir pressure rests at **${well.reservoirPressure || 3000} psi**. Critical gas bubble point is **${well.bubblePointPressure || 1400} psi**. Avoid venting below bubble point.
 
 ---
 
-## 2. ROADMAP EXECUTION SCHEDULE
-*   **Step 1:** Mobilize nitrogen coil fluid wash units to PROD-03 sandstone reservoir zone.
-*   **Step 2:** Increase Gas Lift injection pressures on active manifold manifolds in sector 3.
-*   **Step 3:** Re-tune automated SCADA frequency limits on ESP drives.
+## 2. ROADMAP EXECUTION SCHEDULE FOR ${well.name}
+*   **Step 1:** Calibrate SCADA diagnostics limits and adjust active choke manifold constraints.
+*   **Step 2:** ${isDamaged ? 'Mobilize nitrogen matrix coil washing coiled units to the sandstone zone.' : 'Adjust and tune motor speed/VSD constraints.'}
+*   **Step 3:** Perform a standard flow verification test within 72 hours of intervention execution.
 `;
     } else {
+      let proposal = 'General Pressure Optimization';
+      let capexVal = 55000;
+      let npvVal = 115000;
+      let roiVal = 209;
+      
+      if (well.waterCut > 70) {
+        proposal = 'Gel Chemical Water Shutoff';
+        capexVal = 145000;
+        npvVal = 182000;
+        roiVal = 125;
+      } else if ((well.skinFactor || 0) > 5) {
+        proposal = 'Sandstone Matrix Acid Wash';
+        capexVal = 120000;
+        npvVal = 742000;
+        roiVal = 618;
+      } else if (well.liftType === 'Natural Flow') {
+        proposal = 'ESP Lift Conversion Redesign';
+        capexVal = 210000;
+        npvVal = 445000;
+        roiVal = 212;
+      }
+
       rawText = `
 # OPPORTUNITY RANKING & ECONOMIC APPRAISAL REPORT
 **CAPEX EXPENDITURES PRIORITIZATION AND INVESTMENT LEDGER**
 *Financial Run: ${now}Z*
+*Primary Evaluated Target Candidate: Well ${well.name}*
 
 ---
 
-## 1. CAPITAL PROJECT INVESTMENT TRIAGE
-The following intervention opportunities are prioritized by Capital NPV return guidelines:
+## 1. WELL CAPITAL PROJECT RANKING (TARGET FOCUS: ${well.name})
+Intervention economics computed by discounting future incremental cash output against capital mobilization constraints:
 
-| Priority Rank | Well Candidate | Proposed Operation | CAPEX ($) | Est Gain (BOPD) | 12M NPV ($) | Payback (M) | ROI (%) |
+| Priority Rank | Well Candidate | Proposed Operation | CAPEX ($) | Est Daily Gain (BOPD) | 12M Net Present Value ($) | Payback Cycle (Months) | Return on Investment (%) |
 | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| #1 | **PROD-03** | Sandstone Matrix Acid Wash | $120,000 | +420 BOPD | **+$742,000** | 1.8 Months | **618%** |
-| #2 | **PROD-02** | Gel Chemical Water Shutoff | $145,000 | +220 BOPD | **+$182,000** | 4.5 Months | **125%** |
-| #3 | **PROD-04** | Plunger Lift Conversion | $65,000 | +55 BOPD | **+$115,000** | 4.2 Months | **176%** |
+| #1 | **${well.name}** | **${proposal}** | $${capexVal.toLocaleString()} | +${well.status === 'CRITICAL' ? '420' : well.status === 'UNDERPERFORMER' ? '220' : '85'} BOPD | **+$${npvVal.toLocaleString()}** | ${(12 / (roiVal / 100 + 1)).toFixed(1)} Months | **${roiVal}%** |
+| #2 | PROD-03 | Matrix Stimulation Wash | $120,000 | +420 BOPD | **+$742,000** | 1.8 Months | **618%** |
+| #3 | PROD-01 | ESP Frequency Tuning | $35,005 | +45 BOPD | **+$112,000** | 2.5 Months | **320%** |
 
 ---
 
-## 2. PORTFOLIO APPRAISAL STATEMENT
-The intervention pool requires a total pooled capital budget of **$330,000**. Fully deployed, is predicted to liberate an additional **+695 BOPD** of high-margin oil, returning a total 12-month capital NPV expansion of **+$1,039,000**.
+## 2. PORTFOLIO ECONOMIC RECOMMENDATION SUMMARY
+*   **Capital Security**: Total budget required to initiate targeted candidate **${well.name}** is **$${capexVal.toLocaleString()}**.
+*   **Incremental Reservoir Volume**: Deployed correctly, is predicted to liberate incremental oil flow, stabilizing downstream revenue.
+*   **NPV Lift Plan**: The economic team certifies that well **${well.name}** yields a substantial contribution to active field operating cash flow, giving it high ranking priority.
 `;
     }
     return rawText.trim();
@@ -144,7 +214,9 @@ The intervention pool requires a total pooled capital budget of **$330,000**. Fu
         body: JSON.stringify({
           prompt: ``,
           reportType: reportType,
-          wellContextId: selectedWell.id
+          wellContextId: selectedWell.id,
+          selectedWell: selectedWell,
+          wells: wells
         })
       });
 
@@ -152,7 +224,7 @@ The intervention pool requires a total pooled capital budget of **$330,000**. Fu
       
       if (data.isOfflineMode || data.error || !data.text) {
         // Fallback to offline template engine
-        const offlineReportText = generateOfflineReport(reportType, selectedWell);
+        const offlineReportText = generateOfflineReport(reportType, selectedWell, wells);
         setGeneratedContent(offlineReportText);
       } else {
         setGeneratedContent(data.text);
@@ -162,7 +234,7 @@ The intervention pool requires a total pooled capital budget of **$330,000**. Fu
       onAudit('Technical Report Compiled', `Compiled ${reportType} executing AI Multi-agent summaries on context logs.`);
     } catch (e) {
       console.error(e);
-      const offlineReportText = generateOfflineReport(reportType, selectedWell);
+      const offlineReportText = generateOfflineReport(reportType, selectedWell, wells);
       setGeneratedContent(offlineReportText);
       setShowPrintOption(true);
     } finally {
@@ -206,9 +278,10 @@ The intervention pool requires a total pooled capital budget of **$330,000**. Fu
             </div>
 
             <button
+              id="report-compile-action-btn"
               onClick={handleGenerateReport}
               disabled={isGenerating}
-              className="w-full bg-cyan-600 hover:bg-cyan-500 text-slate-950 text-xs font-bold font-sans py-2.5 rounded-lg transition-all flex items-center justify-center space-x-1.5 active:scale-95 disabled:opacity-50 cursor-pointer shadow-lg shadow-cyan-950/40"
+              className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-mono font-bold py-2.5 rounded-lg transition-all flex items-center justify-center space-x-1.5 active:scale-95 disabled:opacity-50 cursor-pointer shadow-lg shadow-amber-950/45 border border-amber-400/20"
             >
               {isGenerating ? (
                 <>
@@ -242,8 +315,9 @@ The intervention pool requires a total pooled capital budget of **$330,000**. Fu
           <span className="text-slate-400">Active Document Buffer</span>
           {showPrintOption && (
             <button
+              id="report-print-action-btn"
               onClick={executeBrowserPrint}
-              className="flex items-center space-x-1.5 text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
+              className="flex items-center space-x-1.5 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 bg-emerald-950/40 px-3 py-1 rounded transition-all cursor-pointer font-bold"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Print PDF Format</span>

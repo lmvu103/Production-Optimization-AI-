@@ -29,6 +29,11 @@ export interface Well {
     oilRate: number;
     waterCut: number;
     bottomHolePressure: number;
+    wellheadPressure?: number;
+    gor?: number;
+    gasLift?: number;
+    choke?: number;
+    oilCum?: number;
   }[];
 
   // Specific issues

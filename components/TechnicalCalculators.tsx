@@ -56,7 +56,10 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     if (!selectedWell || selectedWell.id === 'well-none') return;
 
     // 1. DCA
-    const initRate = Math.max(10, selectedWell.oilRate || 100);
+    const hasHistory = selectedWell.history && selectedWell.history.length > 0;
+    const initRate = hasHistory 
+      ? Math.max(10, selectedWell.history[0].oilRate) 
+      : Math.max(10, selectedWell.oilRate || 100);
     setQ0(initRate);
 
     let computedDecline = 1.8;
@@ -154,6 +157,91 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     const N_h = historyPoints.length;
     const decDecimal = declineRate / 100;
 
+    const parseMonthYear = (mStr: string): Date => {
+      if (!mStr) return new Date();
+      const cleanStr = mStr.trim();
+      const d = new Date(cleanStr);
+      if (!isNaN(d.getTime())) return d;
+
+      // Handle Excel numeric serial dates
+      const numValue = Number(cleanStr);
+      if (!isNaN(numValue) && numValue > 30000 && numValue < 100000) {
+        return new Date((numValue - 25569) * 86400 * 1000);
+      }
+
+      const parts = cleanStr.split(/[\-\/\s]+/);
+      const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      let m = 5; // June Default
+      let y = 2026;
+      let dayVal = 1;
+
+      if (parts.length === 3) {
+        const p1_lower = parts[1].toLowerCase().substring(0, 3);
+        const mIdx = monthsShort.findIndex(x => x.toLowerCase() === p1_lower);
+        if (mIdx !== -1) {
+          m = mIdx;
+          const p0_num = parseInt(parts[0], 10);
+          const p2_num = parseInt(parts[2], 10);
+          if (!isNaN(p0_num)) dayVal = p0_num;
+          if (!isNaN(p2_num)) y = p2_num < 100 ? 2000 + p2_num : p2_num;
+        } else {
+          const p0_num = parseInt(parts[0], 10);
+          const p1_num = parseInt(parts[1], 10);
+          const p2_num = parseInt(parts[2], 10);
+          if (p0_num > 1900 && !isNaN(p1_num) && !isNaN(p2_num)) {
+            y = p0_num;
+            m = p1_num - 1;
+            dayVal = p2_num;
+          }
+        }
+      } else if (parts.length === 2) {
+        const p0_lower = parts[0].toLowerCase().substring(0, 3);
+        const mIdx0 = monthsShort.findIndex(x => x.toLowerCase() === p0_lower);
+        if (mIdx0 !== -1) {
+          m = mIdx0;
+          const yVal = parseInt(parts[1], 10);
+          if (!isNaN(yVal)) y = yVal < 100 ? 2000 + yVal : yVal;
+        } else {
+          const p1_lower = parts[1].toLowerCase().substring(0, 3);
+          const mIdx1 = monthsShort.findIndex(x => x.toLowerCase() === p1_lower);
+          if (mIdx1 !== -1) {
+            m = mIdx1;
+            const dVal = parseInt(parts[0], 10);
+            if (!isNaN(dVal)) dayVal = dVal;
+          }
+        }
+      }
+      return new Date(y, m, dayVal);
+    };
+
+    const parsedHistoryDates = historyPoints.map(p => parseMonthYear(p.month));
+    let isDaily = false;
+    if (parsedHistoryDates.length >= 2) {
+      const diffs: number[] = [];
+      for (let i = 1; i < parsedHistoryDates.length; i++) {
+        const diffDays = Math.round(Math.abs(parsedHistoryDates[i].getTime() - parsedHistoryDates[i - 1].getTime()) / (1000 * 60 * 60 * 24));
+        diffs.push(diffDays);
+      }
+      diffs.sort((a, b) => a - b);
+      const medianDiff = diffs[Math.floor(diffs.length / 2)];
+      if (medianDiff < 15 && medianDiff > 0) {
+        isDaily = true;
+      }
+    } else if (historyPoints.length > 0) {
+      const parts = historyPoints[0].month.split(/[\-\/\s]+/);
+      if (parts.length === 3 || historyPoints[0].month.includes('-')) {
+        isDaily = true;
+      }
+    }
+
+    const formatLabel = (date: Date): string => {
+      const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${monthsShort[date.getMonth()]} ${date.getFullYear()}`;
+    };
+
+    const lastHistoryLabel = N_h > 0 ? historyPoints[N_h - 1].month : 'May 26';
+    const lastHistoryDate = parseMonthYear(lastHistoryLabel);
+
     const plotPoints: {
       t: number;
       label: string;
@@ -176,9 +264,12 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
           modelVal = q0 / Math.pow(1 + b * decDecimal * t, 1 / b);
         }
 
+        const histDate = parseMonthYear(historyPoints[t].month);
+        const labelStr = formatLabel(histDate);
+
         plotPoints.push({
           t,
-          label: historyPoints[t].month,
+          label: labelStr,
           actualRate: histVal,
           modelRate: Math.max(0, Math.round(modelVal)),
           isForecast: false,
@@ -197,16 +288,26 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
           modelVal = q0 / Math.pow(1 + b * decDecimal * t, 1 / b);
         }
 
+        const countOffset = t - N_h + 1;
+        let forecastDate: Date;
+        if (isDaily) {
+          forecastDate = new Date(lastHistoryDate.getTime() + countOffset * 24 * 60 * 60 * 1000);
+        } else {
+          forecastDate = new Date(lastHistoryDate.getFullYear(), lastHistoryDate.getMonth() + countOffset, 1);
+        }
+        const labelStr = formatLabel(forecastDate);
+
         plotPoints.push({
           t,
-          label: `Month +${t - N_h + 1}`,
+          label: labelStr,
           actualRate: null,
           modelRate: Math.max(0, Math.round(modelVal)),
           isForecast: true,
         });
       }
     } else {
-      // Fallback if no history exists (pure 12-month forecast)
+      // Fallback if no history exists (pure 12-month forecast starting at base May 2026)
+      const baseDate = parseMonthYear('May 26');
       for (let t = 0; t < 12; t++) {
         let modelVal = 0;
         if (declineType === 'EXPONENTIAL') {
@@ -218,9 +319,12 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
           modelVal = q0 / Math.pow(1 + b * decDecimal * t, 1 / b);
         }
 
+        const forecastDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + t, 1);
+        const labelStr = formatLabel(forecastDate);
+
         plotPoints.push({
           t,
-          label: `Month +${t + 1}`,
+          label: labelStr,
           actualRate: null,
           modelRate: Math.max(0, Math.round(modelVal)),
           isForecast: true,
@@ -689,8 +793,9 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
               </div>
 
               <button
+                id="dca-project-action-btn"
                 onClick={recordDCAAudit}
-                className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-mono font-bold py-2 rounded transition-all cursor-pointer"
+                className="w-full bg-cyan-600 hover:bg-cyan-500 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] text-slate-950 text-xs font-mono font-bold py-2.5 rounded-lg border border-cyan-450/20 transition-all cursor-pointer shadow-lg active:scale-95 text-center"
               >
                 Execute Reservoir Projection
               </button>
@@ -1463,8 +1568,9 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
                 </div>
 
                 <button
+                  id="nodal-commit-action-btn"
                   onClick={recordNodalAudit}
-                  className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-mono font-bold py-2 rounded transition-all cursor-pointer text-center"
+                  className="w-full bg-rose-600 hover:bg-rose-500 hover:shadow-[0_0_15px_rgba(244,63,94,0.3)] text-slate-950 text-xs font-mono font-bold py-2.5 rounded-lg border border-rose-450/20 transition-all cursor-pointer shadow-lg active:scale-95 text-center"
                 >
                   Commit Nodal Calibration Log
                 </button>
@@ -1526,8 +1632,9 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
               </div>
 
               <button
+                id="skin-solve-action-btn"
                 onClick={recordSkinAudit}
-                className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-mono font-bold py-2 rounded transition-all cursor-pointer"
+                className="w-full bg-indigo-600 hover:bg-indigo-500 hover:shadow-[0_0_15px_rgba(99,102,241,0.3)] text-slate-100 text-xs font-mono font-bold py-2.5 rounded-lg border border-indigo-500/20 transition-all cursor-pointer shadow-lg active:scale-95 text-center"
               >
                 Solve Production Diagnostics
               </button>
@@ -1640,8 +1747,9 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
               </div>
 
               <button
+                id="econ-perform-action-btn"
                 onClick={recordEconAudit}
-                className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-mono font-bold py-2 rounded transition-all cursor-pointer"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 hover:shadow-[0_0_15px_rgba(16,185,129,0.3)] text-slate-950 text-xs font-mono font-bold py-2.5 rounded-lg border border-emerald-500/20 transition-all cursor-pointer shadow-lg active:scale-95 text-center"
               >
                 Perform NPV Discount Cash Ledger
               </button>

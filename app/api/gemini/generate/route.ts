@@ -14,7 +14,7 @@ const ai = new GoogleGenAI({
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, chatHistory, wellContextId, reportType } = await req.json();
+    const { prompt, chatHistory, wellContextId, reportType, selectedWell: clientSelectedWell, wells: clientWells } = await req.json();
 
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json({
@@ -24,10 +24,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Capture context details for grounding
-    const selectedWell = WELLS_DATA.find(w => w.id === wellContextId);
+    const selectedWell = clientSelectedWell || WELLS_DATA.find(w => w.id === wellContextId);
+    const activeWells = (clientWells && clientWells.length > 0) ? clientWells : WELLS_DATA;
     
     // Construct rich technical RAG knowledge payload
-    const wellBriefs = WELLS_DATA.map(w => `
+    const wellBriefs = activeWells.map((w: any) => `
 Well Name: ${w.name}
 Status: ${w.status}, Lift Type: ${w.liftType}
 Production Metrics: Liquid Rate: ${w.liquidRate} bpd, Oil Rate: ${w.oilRate} bopd, Water Cut: ${w.waterCut}%, GOR: ${w.gor} scf/stb
