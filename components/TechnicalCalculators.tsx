@@ -14,6 +14,7 @@ interface TechnicalCalculatorsProps {
 }
 
 export default function TechnicalCalculators({ wells, selectedWell, onSelectWell, onAudit }: TechnicalCalculatorsProps) {
+  const [language, setLanguage] = useState<'en' | 'vi'>('vi');
   const [activeTab, setActiveTab] = useState<'DCA' | 'NODAL' | 'SKIN_PI' | 'ECON'>('DCA');
 
   // --- DCA State ---
@@ -22,6 +23,7 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
   const [declineType, setDeclineType] = useState<'EXPONENTIAL' | 'HARMONIC' | 'HYPERBOLIC'>('EXPONENTIAL');
   const [bParam, setBParam] = useState<number>(0.5);
   const [abRate, setAbRate] = useState<number>(40);
+  const [forecastDuration, setForecastDuration] = useState<number>(24); // default to 24 months for dynamic forecast
 
   // --- SKIN & PI State ---
   const [qTest, setQTest] = useState<number>(1200);
@@ -139,10 +141,145 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
   // 1. DCA computations
   const dcaCalculations = useMemo(() => {
     const decDecimal = declineRate / 100;
-    const forecast = forecastDecline(q0, decDecimal, declineType, bParam, 12);
-    const reserves = estimateReserves(q0, abRate, decDecimal, declineType, bParam);
-    return { forecast, reserves };
-  }, [q0, declineRate, declineType, bParam, abRate]);
+    const forecast = forecastDecline(q0, decDecimal, declineType, bParam, forecastDuration);
+    
+    const historyPoints = selectedWell.history || [];
+    const N_h = historyPoints.length;
+
+    // Determine isDaily
+    let isDaily = false;
+    if (historyPoints.length >= 2) {
+      const parseMonthYearForDCA = (mStr: string): Date => {
+        if (!mStr) return new Date();
+        const cleanStr = mStr.trim();
+        const d = new Date(cleanStr);
+        if (!isNaN(d.getTime()) && !/^\d+$/.test(cleanStr)) return d;
+        const numValue = Number(cleanStr);
+        if (!isNaN(numValue) && numValue > 30000 && numValue < 100000) {
+          return new Date((numValue - 25569) * 86400 * 1000);
+        }
+        const parts = cleanStr.split(/[\-\/\s]+/);
+        const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        let m = 5; let y = 2026; let dayVal = 1;
+        if (parts.length === 3) {
+          const p1_lower = parts[1].toLowerCase().substring(0, 3);
+          const mIdx = monthsShort.findIndex(x => x.toLowerCase() === p1_lower);
+          if (mIdx !== -1) {
+            m = mIdx;
+            const p0_num = parseInt(parts[0], 10);
+            const p2_num = parseInt(parts[2], 10);
+            if (!isNaN(p0_num)) dayVal = p0_num;
+            if (!isNaN(p2_num)) y = p2_num < 100 ? 2000 + p2_num : p2_num;
+          } else {
+            const p0_num = parseInt(parts[0], 10);
+            const p1_num = parseInt(parts[1], 10);
+            const p2_num = parseInt(parts[2], 10);
+            if (p0_num > 1900 && !isNaN(p1_num) && !isNaN(p2_num)) {
+              y = p0_num; m = p1_num - 1; dayVal = p2_num;
+            } else if (p2_num > 1900 && !isNaN(p1_num) && !isNaN(p0_num)) {
+              y = p2_num; m = p1_num - 1; dayVal = p0_num;
+            } else if (!isNaN(p0_num) && !isNaN(p1_num) && !isNaN(p2_num)) {
+              y = p2_num < 100 ? 2000 + p2_num : p2_num;
+              m = p1_num - 1;
+              dayVal = p0_num;
+            }
+          }
+        } else if (parts.length === 2) {
+          const p0_lower = parts[0].toLowerCase().substring(0, 3);
+          const mIdx0 = monthsShort.findIndex(x => x.toLowerCase() === p0_lower);
+          if (mIdx0 !== -1) {
+            m = mIdx0;
+            const yVal = parseInt(parts[1], 10);
+            if (!isNaN(yVal)) y = yVal < 100 ? 2000 + yVal : yVal;
+          } else {
+            const p1_lower = parts[1].toLowerCase().substring(0, 3);
+            const mIdx1 = monthsShort.findIndex(x => x.toLowerCase() === p1_lower);
+            if (mIdx1 !== -1) {
+              m = mIdx1;
+              const dVal = parseInt(parts[0], 10);
+              if (!isNaN(dVal)) dayVal = dVal;
+            }
+          }
+        }
+        return new Date(y, m, dayVal);
+      };
+
+      const parsedHistoryDates = historyPoints.map(p => parseMonthYearForDCA(p.month));
+      const diffs: number[] = [];
+      for (let i = 1; i < parsedHistoryDates.length; i++) {
+        const diffDays = Math.round(Math.abs(parsedHistoryDates[i].getTime() - parsedHistoryDates[i - 1].getTime()) / (1000 * 60 * 60 * 24));
+        diffs.push(diffDays);
+      }
+      diffs.sort((a, b) => a - b);
+      const medianDiff = diffs[Math.floor(diffs.length / 2)];
+      if (medianDiff < 15 && medianDiff > 0) {
+        isDaily = true;
+      }
+    } else if (historyPoints.length > 0) {
+      if (historyPoints[0].month.split(/[\-\/\s]+/).length === 3 || historyPoints[0].month.includes('-')) {
+        isDaily = true;
+      }
+    }
+
+    const timeStepDays = isDaily ? 1 : 30.416;
+
+    // 1. Reserves hiện tại (Actual produced cumulative from history)
+    let historyReserves = 0;
+    const finalPoint = historyPoints[historyPoints.length - 1];
+    if (finalPoint && finalPoint.oilCum !== undefined) {
+      historyReserves = finalPoint.oilCum;
+    } else if (historyPoints.length > 0) {
+      let tempCum = 0;
+      for (let idx = 0; idx < historyPoints.length; idx++) {
+        const item = historyPoints[idx];
+        if (item.oilCum !== undefined) {
+          tempCum = item.oilCum;
+        } else {
+          tempCum += (item.oilRate * timeStepDays) / 1000;
+        }
+      }
+      historyReserves = tempCum;
+    }
+
+    // 2. Reserves tới thời điểm forecast (Forecast cumulative oil in selected duration)
+    const forecastReserves = forecast.reduce((sum, rate) => sum + (rate * timeStepDays) / 1000, 0);
+
+    // 3. Remaining Reserves to cutoff
+    const d_annual = decDecimal * 12;
+    let remainingCalculated = 0;
+    let yearsToAbandon = 0;
+
+    if (d_annual > 0 && q0 > abRate) {
+      if (declineType === 'EXPONENTIAL') {
+        const npBarrels = (q0 - abRate) * 365 / d_annual;
+        remainingCalculated = npBarrels / 1000;
+        yearsToAbandon = Math.log(q0 / abRate) / d_annual;
+      } else if (declineType === 'HARMONIC') {
+        const npBarrels = (q0 * 365 / d_annual) * Math.log(q0 / abRate);
+        remainingCalculated = npBarrels / 1000;
+        yearsToAbandon = ((q0 / abRate) - 1) / d_annual;
+      } else {
+        const b = Math.max(0.01, Math.min(0.99, bParam));
+        const npBarrels = (Math.pow(q0, b) * 365 / (d_annual * (1 - b))) * 
+                          (Math.pow(q0, 1 - b) - Math.pow(abRate, 1 - b));
+        remainingCalculated = npBarrels / 1000;
+        yearsToAbandon = (Math.pow(q0 / abRate, b) - 1) / (b * d_annual);
+      }
+    }
+
+    const trueEur = historyReserves + remainingCalculated;
+
+    return { 
+      forecast, 
+      reserves: {
+        eur: parseFloat(trueEur.toFixed(2)),
+        remainingReservesMbo: parseFloat(remainingCalculated.toFixed(2)),
+        yearsToAbandon: parseFloat(yearsToAbandon.toFixed(1)),
+        historyReservesMbo: parseFloat(historyReserves.toFixed(2)),
+        forecastReservesMbo: parseFloat(forecastReserves.toFixed(2))
+      } 
+    };
+  }, [q0, declineRate, declineType, bParam, abRate, forecastDuration, selectedWell]);
 
   // 1.1 DCA SVG drawing logic
   const dcaSvgData = useMemo(() => {
@@ -276,8 +413,8 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
         });
       }
 
-      // 2. Future Forecast continuation (t = N_h ... N_h + 11)
-      for (let t = N_h; t < N_h + 12; t++) {
+      // 2. Future Forecast continuation (t = N_h ... N_h + forecastDuration - 1)
+      for (let t = N_h; t < N_h + forecastDuration; t++) {
         let modelVal = 0;
         if (declineType === 'EXPONENTIAL') {
           modelVal = q0 * Math.exp(-decDecimal * t);
@@ -306,9 +443,9 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
         });
       }
     } else {
-      // Fallback if no history exists (pure 12-month forecast starting at base May 2026)
+      // Fallback if no history exists (pure forecastDuration-month forecast starting at base May 2026)
       const baseDate = parseMonthYear('May 26');
-      for (let t = 0; t < 12; t++) {
+      for (let t = 0; t < forecastDuration; t++) {
         let modelVal = 0;
         if (declineType === 'EXPONENTIAL') {
           modelVal = q0 * Math.exp(-decDecimal * t);
@@ -383,7 +520,7 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
       padY_bottom,
       maxVal,
     };
-  }, [selectedWell, declineRate, declineType, bParam, q0]);
+  }, [selectedWell, declineRate, declineType, bParam, q0, forecastDuration]);
 
   // 2. PI & Skin computations
   const skinPiCalculations = useMemo(() => {
@@ -630,6 +767,179 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     onAudit('Arps DCA Forecast Simulated', `Forecast q0=${q0}, dec=${declineRate}%, type=${declineType}. Solved EUR = ${dcaCalculations.reserves.eur} Mbo.`);
   };
 
+  const autoFitHistory = () => {
+    if (!selectedWell.history || selectedWell.history.length < 2) {
+      onAudit('DCA Fit Failed', 'Not enough production history to perform auto-fit.');
+      return;
+    }
+
+    const history = selectedWell.history;
+    const n = history.length;
+
+    // Linear regression on exponential decline model:
+    // ln(q_t) = ln(q_0) - D_i * t
+    let sumT = 0;
+    let sumY = 0;
+    let sumT2 = 0;
+    let sumTY = 0;
+    let validCount = 0;
+
+    for (let t = 0; t < n; t++) {
+      const q = history[t].oilRate;
+      if (q > 0) {
+        const y = Math.log(q);
+        sumT += t;
+        sumY += y;
+        sumT2 += t * t;
+        sumTY += t * y;
+        validCount++;
+      }
+    }
+
+    if (validCount < 2) {
+      onAudit('DCA Fit Failed', 'Insufficient non-zero history points to perform fit.');
+      return;
+    }
+
+    const meanT = sumT / validCount;
+    const meanY = sumY / validCount;
+
+    let num = 0;
+    let den = 0;
+    for (let t = 0; t < n; t++) {
+      const q = history[t].oilRate;
+      if (q > 0) {
+        num += (t - meanT) * (Math.log(q) - meanY);
+        den += (t - meanT) * (t - meanT);
+      }
+    }
+
+    let fittedQ0 = q0;
+    let fittedDecline = declineRate;
+
+    if (den > 0) {
+      const slope = num / den; // slope = -d
+      const intercept = meanY - slope * meanT; // intercept = ln(q0)
+
+      const nominalDecline = -slope;
+      fittedQ0 = Math.exp(intercept);
+      fittedDecline = nominalDecline * 100;
+    } else {
+      const sumRates = history.reduce((sum, h) => sum + h.oilRate, 0);
+      fittedQ0 = sumRates / n;
+      fittedDecline = 1.0;
+    }
+
+    // Clip to sensible values
+    fittedQ0 = Math.max(1, Math.round(fittedQ0));
+    fittedDecline = Math.max(0.01, Math.min(50, parseFloat(fittedDecline.toFixed(3))));
+
+    if (declineType === 'EXPONENTIAL') {
+      setQ0(fittedQ0);
+      setDeclineRate(fittedDecline);
+    } else if (declineType === 'HARMONIC') {
+      // Harmonic regression: y = 1 / q = A + B * t
+      let hSumT = 0;
+      let hSumY = 0;
+      let hCount = 0;
+
+      for (let t = 0; t < n; t++) {
+        const q = history[t].oilRate;
+        if (q > 0) {
+          hSumT += t;
+          hSumY += 1 / q;
+          hCount++;
+        }
+      }
+
+      if (hCount >= 2) {
+        const hMeanT = hSumT / hCount;
+        const hMeanY = hSumY / hCount;
+        let hNum = 0;
+        let hDen = 0;
+        for (let t = 0; t < n; t++) {
+          const q = history[t].oilRate;
+          if (q > 0) {
+            hNum += (t - hMeanT) * ((1 / q) - hMeanY);
+            hDen += (t - hMeanT) * (t - hMeanT);
+          }
+        }
+        if (hDen > 0) {
+          const B = hNum / hDen;
+          const A = hMeanY - B * hMeanT;
+          const estQ0 = A > 0 ? 1 / A : history[0].oilRate;
+          const estDecline = B * estQ0 * 100;
+          setQ0(Math.max(1, Math.round(estQ0)));
+          setDeclineRate(Math.max(0.01, Math.min(50, parseFloat(estDecline.toFixed(3)))));
+        }
+      }
+    } else {
+      // Hyperbolic
+      // We optimize over the best exponent b matching actual rates
+      let bestB = bParam;
+      let bestQ0 = fittedQ0;
+      let bestDecline = fittedDecline;
+      let minRmse = Infinity;
+
+      for (let b = 0.1; b <= 0.9; b += 0.1) {
+        let sumT = 0;
+        let sumY = 0;
+        let count = 0;
+        for (let t = 0; t < n; t++) {
+          const q = history[t].oilRate;
+          if (q > 0) {
+            sumT += t;
+            sumY += Math.pow(q, -b);
+            count++;
+          }
+        }
+        if (count >= 2) {
+          const meanT = sumT / count;
+          const meanY = sumY / count;
+          let num = 0;
+          let den = 0;
+          for (let t = 0; t < n; t++) {
+            const q = history[t].oilRate;
+            if (q > 0) {
+              num += (t - meanT) * (Math.pow(q, -b) - meanY);
+              den += (t - meanT) * (t - meanT);
+            }
+          }
+          if (den > 0) {
+            const B = num / den;
+            const A = meanY - B * meanT;
+            if (A > 0) {
+              const estQ0 = Math.pow(A, -1 / b);
+              const estDecline = (B / (A * b)) * 100;
+              
+              let rmseSum = 0;
+              for (let t = 0; t < n; t++) {
+                const qActual = history[t].oilRate;
+                const qModel = estQ0 / Math.pow(1 + b * (estDecline/100) * t, 1 / b);
+                rmseSum += Math.pow(qActual - qModel, 2);
+              }
+              const rmse = Math.sqrt(rmseSum / n);
+              if (rmse < minRmse) {
+                minRmse = rmse;
+                bestB = parseFloat(b.toFixed(2));
+                bestQ0 = Math.round(estQ0);
+                bestDecline = parseFloat(estDecline.toFixed(3));
+              }
+            }
+          }
+        }
+      }
+      setQ0(Math.max(1, bestQ0));
+      setDeclineRate(Math.max(0.01, Math.min(50, bestDecline)));
+      setBParam(bestB);
+    }
+
+    onAudit(
+      'Arps Production History Fitted', 
+      `Matched ${selectedWell.name} history. Fitted q0=${fittedQ0} BOPD, Decline=${fittedDecline}%/mo on ${declineType} model.`
+    );
+  };
+
   const recordSkinAudit = () => {
     onAudit('PI & Wellbore Skin Calculated', `Tested liquid=${qTest} bpd, draw=${prPressure - pwfPressure} psi. Solved PI=${skinPiCalculations.pi}, Skin=${skinPiCalculations.skin}`);
   };
@@ -781,23 +1091,39 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
                 </div>
               )}
 
-              <div className="space-y-1">
-                <label className="text-[10px] text-slate-400 font-mono">ABANDONMENT CUTOFF RATE (BOPD)</label>
-                <input
-                  type="number"
-                  value={abRate}
-                  onChange={(e) => setAbRate(Math.max(1, parseInt(e.target.value) || 0))}
-                  className="w-full bg-[#050812] border border-slate-800 px-3 py-1.5 rounded text-sm text-slate-100 font-mono focus:border-cyan-500 focus:outline-none"
-                >
-                </input>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-400 font-mono uppercase">ABANDONMENT CUTOFF (BOPD)</label>
+                  <input
+                    type="number"
+                    value={abRate}
+                    onChange={(e) => setAbRate(Math.max(1, parseInt(e.target.value) || 0))}
+                    className="w-full bg-[#050812] border border-slate-800 px-3 py-1.5 rounded text-sm text-slate-100 font-mono focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-cyan-400 font-mono font-bold">DCA FORECAST DURATION</label>
+                  <select
+                    value={forecastDuration}
+                    onChange={(e) => setForecastDuration(parseInt(e.target.value))}
+                    className="w-full bg-[#050812] border border-slate-800 px-3 py-1.5 rounded text-sm text-slate-100 font-mono focus:border-cyan-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="6">6 Months</option>
+                    <option value="12">12 Months (1 Yr)</option>
+                    <option value="24">24 Months (2 Yrs)</option>
+                    <option value="36">36 Months (3 Yrs)</option>
+                    <option value="48">48 Months (4 Yrs)</option>
+                    <option value="60">60 Months (5 Yrs)</option>
+                  </select>
+                </div>
               </div>
 
               <button
                 id="dca-project-action-btn"
-                onClick={recordDCAAudit}
-                className="w-full bg-cyan-600 hover:bg-cyan-500 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] text-slate-950 text-xs font-mono font-bold py-2.5 rounded-lg border border-cyan-450/20 transition-all cursor-pointer shadow-lg active:scale-95 text-center"
+                onClick={autoFitHistory}
+                className="w-full bg-[#00f2fe]/10 hover:bg-[#00f2fe]/20 text-[#00f2fe] hover:shadow-[0_0_15px_rgba(0,242,254,0.15)] text-xs font-mono font-bold py-2.5 rounded-lg border border-[#00f2fe]/30 hover:border-[#00f2fe]/50 transition-all cursor-pointer shadow-lg active:scale-95 text-center flex items-center justify-center gap-2"
               >
-                Execute Reservoir Projection
+                <Activity className="w-4 h-4 animate-pulse text-[#00f2fe]" /> Auto matching production history
               </button>
             </div>
 
@@ -805,7 +1131,7 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
               <div className="space-y-2">
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="text-xs font-semibold tracking-wider text-slate-400 font-mono uppercase">Production History Match &amp; Forecast Plot</h3>
-                  <span className="text-[10px] text-cyan-500 font-mono">History ({selectedWell.history?.length || 0}M) + Forecast (+12M)</span>
+                  <span className="text-[10px] text-cyan-500 font-mono">History ({selectedWell.history?.length || 0}M) + Forecast (+{forecastDuration}M)</span>
                 </div>
                 
                 {/* Visualizer container */}
@@ -976,27 +1302,30 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
                       strokeWidth="1"
                     />
 
-                    {/* X-Axis labels */}
-                    {dcaSvgData.points.map((p, idx) => {
-                      const totalCount = dcaSvgData.points.length;
-                      const stepToShow = Math.max(2, Math.ceil(totalCount / 6));
-                      if (idx === 0 || idx === totalCount - 1 || idx % stepToShow === 0) {
-                        return (
-                          <text
-                            key={idx}
-                            x={p.x}
-                            y={dcaSvgData.height - dcaSvgData.padY_bottom + 12}
-                            fill="#64748b"
-                            fontSize="7.5"
-                            fontFamily="monospace"
-                            textAnchor="middle"
-                          >
-                            {p.label}
-                          </text>
-                        );
-                      }
-                      return null;
-                    })}
+                     {/* X-Axis labels */}
+                     {dcaSvgData.points.map((p, idx) => {
+                       const totalCount = dcaSvgData.points.length;
+                       const stepToShow = Math.max(2, Math.ceil(totalCount / 6));
+                       if (idx === 0 || idx === totalCount - 1 || idx % stepToShow === 0) {
+                         const rotateAngle = 20;
+                         const labelY = dcaSvgData.height - dcaSvgData.padY_bottom + 14;
+                         return (
+                           <text
+                             key={idx}
+                             x={p.x}
+                             y={labelY}
+                             fill="#64748b"
+                             fontSize="7.5"
+                             fontFamily="monospace"
+                             textAnchor="middle"
+                             transform={`rotate(${rotateAngle}, ${p.x}, ${labelY})`}
+                           >
+                             {p.label}
+                           </text>
+                         );
+                       }
+                       return null;
+                     })}
 
                     <defs>
                       <linearGradient id="area-gradient-fc" x1="0" y1="0" x2="0" y2="1">
@@ -1029,18 +1358,61 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
               </div>
 
               {/* Economic stats resolved display */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-slate-950 p-4 rounded-lg border border-slate-850">
-                <div>
-                  <span className="text-[10px] text-slate-500 font-mono">RESERVES OUTLOOK (EUR)</span>
-                  <p className="text-base font-bold text-slate-100 font-mono">{dcaCalculations.reserves.eur} Mbo</p>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 bg-slate-950 p-4 rounded-lg border border-slate-850">
+                <div className="p-2.5 rounded bg-slate-900/50 border border-slate-800 flex flex-col justify-between">
+                  <span className="text-[9px] text-slate-400 uppercase tracking-widest font-mono block font-semibold">
+                    {language === 'en' ? 'Current Produced' : 'Sản Lượng Lũy Kế'}
+                  </span>
+                  <p className="text-sm font-bold text-slate-100 font-mono mt-1">
+                    {dcaCalculations.reserves.historyReservesMbo.toLocaleString()} Mbo
+                  </p>
+                  <span className="text-[8px] text-orange-400 font-mono mt-0.5 block leading-tight">
+                    {language === 'en' ? 'Cumulative active history' : 'Reserves hiện tại'}
+                  </span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 font-mono">REMAINING RESERVES</span>
-                  <p className="text-base font-bold text-cyan-400 font-mono">{dcaCalculations.reserves.remainingReservesMbo} Mbo</p>
+                <div className="p-2.5 rounded bg-slate-900/50 border border-slate-800 flex flex-col justify-between">
+                  <span className="text-[9px] text-cyan-400 uppercase tracking-widest font-mono block font-semibold">
+                    {language === 'en' ? `Forecast (${forecastDuration}M)` : `Dự Báo (${forecastDuration}T)`}
+                  </span>
+                  <p className="text-sm font-bold text-cyan-400 font-mono mt-1">
+                    {dcaCalculations.reserves.forecastReservesMbo.toLocaleString()} Mbo
+                  </p>
+                  <span className="text-[8px] text-slate-500 font-mono mt-0.5 block leading-tight">
+                    {language === 'en' ? 'In selected forecast period' : 'Sản lượng tới mốc forecast'}
+                  </span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 font-mono">YEARS TO OPERATE</span>
-                  <p className="text-base font-bold text-slate-100 font-mono">{dcaCalculations.reserves.yearsToAbandon} Years</p>
+                <div className="p-2.5 rounded bg-slate-900/50 border border-slate-800 flex flex-col justify-between">
+                  <span className="text-[9px] text-emerald-400 uppercase tracking-widest font-mono block font-semibold">
+                    {language === 'en' ? 'Remaining Reserves' : 'Trữ Lượng Còn Lại'}
+                  </span>
+                  <p className="text-sm font-bold text-emerald-400 font-mono mt-1">
+                    {dcaCalculations.reserves.remainingReservesMbo.toLocaleString()} Mbo
+                  </p>
+                  <span className="text-[8px] text-slate-500 font-mono mt-0.5 block leading-tight">
+                    {language === 'en' ? 'To economic cutoff rate' : 'Còn lại đến giới hạn khống'}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded bg-slate-900/50 border border-slate-800 flex flex-col justify-between">
+                  <span className="text-[9px] text-slate-400 uppercase tracking-widest font-mono block font-semibold">
+                    {language === 'en' ? 'Years to Operate' : 'Thời Gian Còn Lại'}
+                  </span>
+                  <p className="text-sm font-bold text-slate-100 font-mono mt-1">
+                    {dcaCalculations.reserves.yearsToAbandon} {language === 'en' ? 'Yrs' : 'Năm'}
+                  </p>
+                  <span className="text-[8px] text-slate-500 font-mono mt-0.5 block leading-tight">
+                    {language === 'en' ? 'Until abandonment limit' : 'Thời gian đến giới hạn đóng mỏ'}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded bg-slate-900/50 border border-cyan-900/30 flex flex-col justify-between col-span-2 md:col-span-1">
+                  <span className="text-[9px] text-[#00f2fe] uppercase tracking-widest font-mono block font-semibold">
+                    {language === 'en' ? 'Ultimate EUR' : 'Trữ Lượng EUR'}
+                  </span>
+                  <p className="text-sm font-bold text-[#00f2fe] font-mono mt-1 text-cyan-400">
+                    {dcaCalculations.reserves.eur.toLocaleString()} Mbo
+                  </p>
+                  <span className="text-[8px] text-slate-400 font-mono mt-0.5 block leading-tight">
+                    {language === 'en' ? 'Ultimate Recovery (Cum+Rem)' : 'Tổng EUR ước tính'}
+                  </span>
                 </div>
               </div>
             </div>

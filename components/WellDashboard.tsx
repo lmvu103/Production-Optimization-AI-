@@ -15,7 +15,43 @@ const formatXAxisDate = (dateStr: string): string => {
   if (!dateStr) return '';
   const clean = dateStr.trim();
   
-  // Normalize string for common tokens
+  // Handle numeric representation
+  const numericVal = Number(clean);
+  if (!isNaN(numericVal) && clean !== '') {
+    let d: Date;
+    if (numericVal > 30000 && numericVal < 100000) {
+      // Excel serial date serial number (e.g. 42537)
+      d = new Date((numericVal - 25569) * 86400 * 1000);
+    } else if (numericVal > 100000000000) {
+      // Unix timestamp in milliseconds
+      d = new Date(numericVal);
+    } else if (numericVal > 10000000 && numericVal < 100000000) {
+      // YYYYMMDD format (e.g., 20160616)
+      const yrStr = clean.substring(0, 4);
+      const moStr = clean.substring(4, 6);
+      const dyStr = clean.substring(6, 8);
+      const yr = parseInt(yrStr, 10);
+      const mo = parseInt(moStr, 10);
+      const dy = parseInt(dyStr, 10);
+      if (yr > 1900 && yr < 2100 && mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
+        d = new Date(yr, mo - 1, dy);
+      } else {
+        d = new Date(NaN);
+      }
+    } else {
+      // Assume unix seconds
+      d = new Date(numericVal * 1000);
+    }
+    
+    if (!isNaN(d.getTime())) {
+      const dayStr = String(d.getDate()).padStart(2, '0');
+      const monthStr = String(d.getMonth() + 1).padStart(2, '0');
+      const yearStr = d.getFullYear();
+      return `${dayStr}/${monthStr}/${yearStr}`;
+    }
+  }
+
+  // Handle standard format by splitting or mapping
   const normalized = clean.toLowerCase()
     .replace(/thg\s*/g, '')
     .replace(/tháng\s*/g, '')
@@ -23,28 +59,35 @@ const formatXAxisDate = (dateStr: string): string => {
     .trim();
     
   const parts = normalized.split(/[-/ ]+/);
-  
   const monthsEngShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  
   const monthMap: Record<string, string> = {
-    jan: 'Jan', feb: 'Feb', mar: 'Mar', apr: 'Apr',
-    may: 'May', jun: 'Jun', jul: 'Jul', aug: 'Aug',
-    sep: 'Sep', oct: 'Oct', nov: 'Nov', dec: 'Dec',
-    'thg 01': 'Jan', 'thg 02': 'Feb', 'thg 03': 'Mar', 'thg 04': 'Apr',
-    'thg 05': 'May', 'thg 06': 'Jun', 'thg 07': 'Jul', 'thg 08': 'Aug',
-    'thg 09': 'Sep', 'thg 10': 'Oct', 'thg 11': 'Nov', 'thg 12': 'Dec',
-    '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun',
-    '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec',
-    '1': 'Jan', '2': 'Feb', '3': 'Mar', '4': 'Apr', '5': 'May', '6': 'Jun',
-    '7': 'Jul', '8': 'Aug', '9': 'Sep'
+    jan: '01', feb: '02', mar: '03', apr: '04',
+    may: '05', jun: '06', jul: '07', aug: '08',
+    sep: '09', oct: '10', nov: '11', dec: '12',
+    'thg 01': '01', 'thg 02': '02', 'thg 03': '03', 'thg 04': '04',
+    'thg 05': '05', 'thg 06': '06', 'thg 07': '07', 'thg 08': '08',
+    'thg 09': '09', 'thg 10': '10', 'thg 11': '11', 'thg 12': '12',
+    '01': '01', '02': '02', '03': '03', '04': '04', '05': '05', '06': '06',
+    '07': '07', '08': '08', '09': '09', '10': '10', '11': '11', '12': '12',
+    '1': '01', '2': '02', '3': '03', '4': '04', '5': '05', '6': '06',
+    '7': '07', '8': '08', '9': '09'
   };
 
+  // 1. Check if we can parse it as a valid built-in Javascript Date
+  const parsedDate = new Date(clean);
+  if (!isNaN(parsedDate.getTime()) && !/^\d+$/.test(clean)) {
+    const dayStr = String(parsedDate.getDate()).padStart(2, '0');
+    const monthStr = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const yearStr = parsedDate.getFullYear();
+    return `${dayStr}/${monthStr}/${yearStr}`;
+  }
+
   if (parts.length === 3) {
-    const day = parseInt(parts[0], 10);
+    let day = parseInt(parts[0], 10);
     const mPart = parts[1];
     let yr = parts[2];
-    if (yr.length === 4) {
-      yr = yr.substring(2);
+    if (yr.length === 2) {
+      yr = '20' + yr;
     }
     
     let matchedMonth = '';
@@ -53,55 +96,32 @@ const formatXAxisDate = (dateStr: string): string => {
     } else {
       const mIdx = parseInt(mPart, 10);
       if (!isNaN(mIdx) && mIdx >= 1 && mIdx <= 12) {
-        matchedMonth = monthsEngShort[mIdx - 1];
+        matchedMonth = String(mIdx).padStart(2, '0');
       }
     }
 
     if (matchedMonth && !isNaN(day)) {
-      return `${day}-${matchedMonth}-${yr}`;
+      return `${String(day).padStart(2, '0')}/${matchedMonth}/${yr}`;
     }
   }
 
-  if (parts.length === 3) {
-    if (parts[0].length === 4) {
-      const yr = parts[0].substring(2);
-      const mPart = parts[1];
-      const day = parseInt(parts[2], 10);
-      
-      let matchedMonth = '';
-      if (monthMap[mPart]) {
-        matchedMonth = monthMap[mPart];
-      } else {
-        const mIdx = parseInt(mPart, 10);
-        if (!isNaN(mIdx) && mIdx >= 1 && mIdx <= 12) {
-          matchedMonth = monthsEngShort[mIdx - 1];
-        }
-      }
-      
-      if (matchedMonth && !isNaN(day)) {
-        return `${day}-${matchedMonth}-${yr}`;
+  if (parts.length === 3 && parts[0].length === 4) {
+    const yr = parts[0];
+    const mPart = parts[1];
+    const day = parseInt(parts[2], 10);
+    
+    let matchedMonth = '';
+    if (monthMap[mPart]) {
+      matchedMonth = monthMap[mPart];
+    } else {
+      const mIdx = parseInt(mPart, 10);
+      if (!isNaN(mIdx) && mIdx >= 1 && mIdx <= 12) {
+        matchedMonth = String(mIdx).padStart(2, '0');
       }
     }
     
-    const p2_num = parseInt(parts[2], 10);
-    if (!isNaN(p2_num)) {
-      const yr = parts[2].length === 4 ? parts[2].substring(2) : parts[2];
-      const mPart = parts[1];
-      const day = parseInt(parts[0], 10);
-      
-      let matchedMonth = '';
-      if (monthMap[mPart]) {
-        matchedMonth = monthMap[mPart];
-      } else {
-        const mIdx = parseInt(mPart, 10);
-        if (!isNaN(mIdx) && mIdx >= 1 && mIdx <= 12) {
-          matchedMonth = monthsEngShort[mIdx - 1];
-        }
-      }
-      
-      if (matchedMonth && !isNaN(day)) {
-        return `${day}-${matchedMonth}-${yr}`;
-      }
+    if (matchedMonth && !isNaN(day)) {
+      return `${String(day).padStart(2, '0')}/${matchedMonth}/${yr}`;
     }
   }
 
@@ -121,10 +141,10 @@ const formatXAxisDate = (dateStr: string): string => {
     }
     
     if (matchedMonth && yr) {
-      if (yr.length === 4) {
-        yr = yr.substring(2);
+      if (yr.length === 2) {
+        yr = '20' + yr;
       }
-      return `1-${matchedMonth}-${yr}`;
+      return `01/${matchedMonth}/${yr}`;
     }
   }
 

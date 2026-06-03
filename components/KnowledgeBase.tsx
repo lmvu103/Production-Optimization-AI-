@@ -6,7 +6,8 @@ import { SPE_KNOWLEDGE_BASE, SPEPaper, Well } from '../lib/oilfieldData';
 import { 
   BookOpen, Search, UploadCloud, FileSpreadsheet, FileText, 
   FileCheck, Download, ChevronRight, Activity, Droplets, 
-  Flame, HardDrive, AlertTriangle, CheckCircle2, RefreshCw 
+  Flame, HardDrive, AlertTriangle, CheckCircle2, RefreshCw,
+  Trash2
 } from 'lucide-react';
 
 interface KnowledgeBaseProps {
@@ -14,6 +15,7 @@ interface KnowledgeBaseProps {
   selectedWell: Well;
   onSelectWell: (well: Well) => void;
   onWellsUpdate: (wells: Well[]) => void;
+  onWellsDelete?: (wellIds: string[]) => void;
   onAudit: (action: string, details: string) => void;
 }
 
@@ -22,6 +24,7 @@ export default function KnowledgeBase({
   selectedWell, 
   onSelectWell, 
   onWellsUpdate, 
+  onWellsDelete,
   onAudit 
 }: KnowledgeBaseProps) {
   const [language, setLanguage] = useState<'en' | 'vi'>('en');
@@ -32,6 +35,7 @@ export default function KnowledgeBase({
     timestamp: string; 
     rowsParsedCount: number;
     wellNames: string[];
+    wellIds: string[];
   }[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [activePaper, setActivePaper] = useState<SPEPaper | null>(SPE_KNOWLEDGE_BASE[0]);
@@ -103,7 +107,8 @@ export default function KnowledgeBase({
         size: `${(file.size / 1024).toFixed(1)} KB`,
         timestamp: timeStr,
         rowsParsedCount: parsedRows,
-        wellNames: ['Doc Grounding Reference']
+        wellNames: ['Doc Grounding Reference'],
+        wellIds: []
       }, ...prev]);
       onAudit('Reference Document Ingested', `Reference document '${file.name}' added to prompt RAG library.`);
       return;
@@ -301,7 +306,16 @@ export default function KnowledgeBase({
 
           // Build history directly from the physical rows to preserve exact dates and rates from the database
           let history = sortedRows.map(r => {
-            const dateStr = getRowString(r, ['Date', 'date', 'ngay', 'Ngay', 'Ngày', 'Time', 'time', 'Thang', 'Tháng', 'month', 'Month'], '16-Jun-16');
+            const rawDateStr = getRowString(r, ['Date', 'date', 'ngay', 'Ngay', 'Ngày', 'Time', 'time', 'Thang', 'Tháng', 'month', 'Month'], '16-Jun-16');
+            let dateStr = rawDateStr;
+            const parsedD = parseCSVDate(rawDateStr);
+            if (parsedD && !isNaN(parsedD.getTime())) {
+              const dayStr = String(parsedD.getDate()).padStart(2, '0');
+              const monthStr = String(parsedD.getMonth() + 1).padStart(2, '0');
+              const yearStr = parsedD.getFullYear();
+              dateStr = `${dayStr}/${monthStr}/${yearStr}`;
+            }
+
             const oR = getRowValue(r, ['Rate Oil', 'Rate_Oil', 'oilrate', 'oil_rate', 'prodoil', 'Oil Rate', 'Oil_Rate', 'qo', 'Qo', 'Oil bopd', 'Oil (bopd)', 'Lưu lượng dầu', 'Sản lượng dầu'], 300);
             const lR = getRowValue(r, ['Rate Liquid', 'Rate_Liquid', 'liquidrate', 'liquid_rate', 'prop液', 'prodliquid', 'Liquid Rate', 'Liquid_Rate', 'ql', 'Ql', 'Liquid (bpd)', 'Liquid bpd', 'Lưu lượng chất lỏng', 'Sản lượng chất lỏng'], 1500);
             const wR = getRowValue(r, ['Rate Water', 'Rate_Water', 'waterrate', 'water_rate', 'prodwater', 'Water Rate', 'Water_Rate', 'qw', 'Qw', 'Water (bpd)', 'Water bpd', 'Lưu lượng nước', 'Sản lượng nước'], lR - oR);
@@ -399,7 +413,8 @@ export default function KnowledgeBase({
           size: `${(file.size / 1024).toFixed(1)} KB`,
           timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
           rowsParsedCount: totalRowsParsed,
-          wellNames: parsedWells.map(w => w.name)
+          wellNames: parsedWells.map(w => w.name),
+          wellIds: parsedWells.map(w => w.id)
         };
         setUploadedFiles(prev => [fileInfo, ...prev]);
 
@@ -433,6 +448,24 @@ export default function KnowledgeBase({
     if (chosenFile) {
       handleUploadedDataset(chosenFile);
     }
+  };
+
+  const handleDeleteFile = (idx: number) => {
+    const targetFile = uploadedFiles[idx];
+    if (!targetFile) return;
+
+    if (onWellsDelete && targetFile.wellIds && targetFile.wellIds.length > 0) {
+      onWellsDelete(targetFile.wellIds);
+    }
+
+    setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
+
+    onAudit(
+      'File Ingestion Removed', 
+      language === 'en' 
+        ? `Successfully removed telemetry source file '${targetFile.name}' and all associated well assets.`
+        : `Đã xóa tệp nguồn '${targetFile.name}' và thu hồi toàn bộ dữ liệu giếng liên quan.`
+    );
   };
 
   // Find grounding paper associated with selected active well's liftType
@@ -581,9 +614,19 @@ export default function KnowledgeBase({
                       </div>
                     </div>
 
-                    <span className="text-[9px] bg-emerald-950/40 text-emerald-400 px-2 py-0.5 rounded border border-emerald-950 flex items-center gap-1 shrink-0 font-mono">
-                      <FileCheck className="w-3 h-3" /> {f.rowsParsedCount} {language === 'en' ? 'rows' : 'dòng'}
-                    </span>
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <span className="text-[9px] bg-emerald-950/40 text-emerald-400 px-2 py-0.5 rounded border border-emerald-950 flex items-center gap-1 font-mono">
+                        <FileCheck className="w-3 h-3" /> {f.rowsParsedCount} {language === 'en' ? 'rows' : 'dòng'}
+                      </span>
+                      <button
+                        id={`delete-ingest-btn-${i}`}
+                        onClick={() => handleDeleteFile(i)}
+                        title={language === 'en' ? 'Delete uploaded file and associated well' : 'Xóa tệp dữ liệu và giếng liên quan'}
+                        className="p-1 hover:bg-rose-950/40 text-slate-500 hover:text-rose-450 border border-transparent hover:border-rose-900/50 rounded transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))
               )}

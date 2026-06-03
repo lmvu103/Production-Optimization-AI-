@@ -170,6 +170,19 @@ export default function Home() {
                     setCurrentWellId(newWells[0].id);
                   }
                 }}
+                onWellsDelete={(wellIds) => {
+                  setWells(prev => {
+                    const remaining = prev.filter(w => !wellIds.includes(w.id));
+                    if (wellIds.includes(currentWellId || '')) {
+                      if (remaining.length > 0) {
+                        setCurrentWellId(remaining[0].id);
+                      } else {
+                        setCurrentWellId(null);
+                      }
+                    }
+                    return remaining;
+                  });
+                }}
                 onAudit={addNewAuditEntry}
               />
             )}
