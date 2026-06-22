@@ -313,7 +313,7 @@ export default function KnowledgeBase({
               const dayStr = String(parsedD.getDate()).padStart(2, '0');
               const monthStr = String(parsedD.getMonth() + 1).padStart(2, '0');
               const yearStr = parsedD.getFullYear();
-              dateStr = `${dayStr}/${monthStr}/${yearStr}`;
+              dateStr = `${dayStr}-${monthStr}-${yearStr}`;
             }
 
             const oR = getRowValue(r, ['Rate Oil', 'Rate_Oil', 'oilrate', 'oil_rate', 'prodoil', 'Oil Rate', 'Oil_Rate', 'qo', 'Qo', 'Oil bopd', 'Oil (bopd)', 'Lưu lượng dầu', 'Sản lượng dầu'], 300);

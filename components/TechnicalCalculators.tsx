@@ -6,6 +6,94 @@ import { forecastDecline, estimateReserves, calculateEconBenefit, solveOperating
 import { AreaChart, Calculator, DollarSign, ListFilter, TrendingDown, Percent, Settings, Download, Activity } from 'lucide-react';
 import { Well } from '../lib/oilfieldData';
 
+/**
+ * Robust date parser supporting DD-MM-YYYY, YYYY-MM-DD, Excel serial format, and month strings.
+ */
+const robustParseDate = (dateStr: string): Date => {
+  if (!dateStr) return new Date();
+  const clean = dateStr.trim();
+
+  // Try parsing built-in Javascript Date, but exclude pure numbers
+  const parsedDate = new Date(clean);
+  if (!isNaN(parsedDate.getTime()) && !/^\d+$/.test(clean)) {
+    return parsedDate;
+  }
+
+  // Handle numeric representation
+  const numericVal = Number(clean);
+  if (!isNaN(numericVal) && clean !== '') {
+    if (numericVal > 30000 && numericVal < 100000) {
+      // Excel serial date number
+      return new Date((numericVal - 25569) * 86400 * 1000);
+    } else if (numericVal > 100000000000) {
+      // Unix timestamp in milliseconds
+      return new Date(numericVal);
+    } else if (numericVal > 10000000 && numericVal < 100000000) {
+      // YYYYMMDD
+      const yr = parseInt(clean.substring(0, 4), 10);
+      const mo = parseInt(clean.substring(4, 6), 10);
+      const dy = parseInt(clean.substring(6, 8), 10);
+      return new Date(yr, mo - 1, dy);
+    } else {
+      // Assume unix seconds
+      return new Date(numericVal * 1000);
+    }
+  }
+
+  const normalized = clean.toLowerCase()
+    .replace(/thg\s*/g, '')
+    .replace(/tháng\s*/g, '')
+    .replace(/thang\s*/g, '')
+    .trim();
+
+  const parts = normalized.split(/[-/ ]+/);
+  const monthMap: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+    '01': 0, '02': 1, '03': 2, '04': 3, '05': 4, '06': 5, '07': 6, '08': 7, '09': 8, '10': 9, '11': 10, '12': 11,
+    '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6, '8': 7, '9': 8
+  };
+
+  if (parts.length === 3) {
+    // Check if YYYY-MM-DD
+    if (parts[0].length === 4) {
+      const yr = parseInt(parts[0], 10);
+      const mStr = parts[1];
+      const dy = parseInt(parts[2], 10);
+      let mo = monthMap[mStr] !== undefined ? monthMap[mStr] : parseInt(mStr, 10) - 1;
+      return new Date(yr, mo, dy);
+    } else {
+      // Assume DD-MM-YYYY or DD-MMM-YY
+      const dy = parseInt(parts[0], 10);
+      const mStr = parts[1];
+      let yrStr = parts[2];
+      let yr = parseInt(yrStr, 10);
+      if (yrStr.length === 2) {
+        yr = 2000 + yr;
+      }
+      let mo = monthMap[mStr] !== undefined ? monthMap[mStr] : parseInt(mStr, 10) - 1;
+      return new Date(yr, mo, dy);
+    }
+  }
+
+  if (parts.length === 2) {
+    const p0 = parts[0];
+    const p1 = parts[1];
+    let mo = 0;
+    let yr = 2026;
+    if (monthMap[p0] !== undefined) {
+      mo = monthMap[p0];
+      yr = parseInt(p1, 10);
+    } else if (monthMap[p1] !== undefined) {
+      mo = monthMap[p1];
+      yr = parseInt(p0, 10);
+    }
+    if (yr < 100) yr = 2000 + yr;
+    return new Date(yr, mo, 1);
+  }
+
+  return new Date();
+};
+
 interface TechnicalCalculatorsProps {
   wells: Well[];
   selectedWell: Well;
@@ -68,12 +156,31 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     if (selectedWell.history && selectedWell.history.length > 1) {
       const firstPoint = selectedWell.history[0];
       const lastPoint = selectedWell.history[selectedWell.history.length - 1];
-      const t = selectedWell.history.length - 1;
-      if (firstPoint.oilRate > 0 && lastPoint.oilRate > 0 && firstPoint.oilRate > lastPoint.oilRate && t > 0) {
+      
+      // Determine if the history is daily or monthly dynamically
+      let isDaily = false;
+      const parseMonthYearForInit = robustParseDate;
+
+      const parsedDates = selectedWell.history.map(p => parseMonthYearForInit(p.month));
+      const diffs: number[] = [];
+      for (let i = 1; i < parsedDates.length; i++) {
+        const diffDays = Math.round(Math.abs(parsedDates[i].getTime() - parsedDates[i - 1].getTime()) / (1000 * 60 * 60 * 24));
+        diffs.push(diffDays);
+      }
+      diffs.sort((a, b) => a - b);
+      const medianDiff = diffs[Math.floor(diffs.length / 2)];
+      if (medianDiff < 15 && medianDiff > 0) {
+        isDaily = true;
+      }
+
+      const t_index = selectedWell.history.length - 1;
+      const t_months = t_index * (isDaily ? (1 / 30.416) : 1);
+      
+      if (firstPoint.oilRate > 0 && lastPoint.oilRate > 0 && firstPoint.oilRate > lastPoint.oilRate && t_months > 0) {
         // Exponential matched monthly nominal decline
-        const nominalMonthly = -Math.log(lastPoint.oilRate / firstPoint.oilRate) / t;
+        const nominalMonthly = -Math.log(lastPoint.oilRate / firstPoint.oilRate) / t_months;
         computedDecline = parseFloat((nominalMonthly * 100).toFixed(2));
-        computedDecline = Math.max(0.1, Math.min(15, computedDecline));
+        computedDecline = Math.max(0.1, Math.min(50, computedDecline));
       }
     }
     setDeclineRate(computedDecline);
@@ -140,8 +247,7 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
 
   // 1. DCA computations
   const dcaCalculations = useMemo(() => {
-    const decDecimal = declineRate / 100;
-    const forecast = forecastDecline(q0, decDecimal, declineType, bParam, forecastDuration);
+    const decDecimal_monthly = declineRate / 100;
     
     const historyPoints = selectedWell.history || [];
     const N_h = historyPoints.length;
@@ -149,62 +255,7 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     // Determine isDaily
     let isDaily = false;
     if (historyPoints.length >= 2) {
-      const parseMonthYearForDCA = (mStr: string): Date => {
-        if (!mStr) return new Date();
-        const cleanStr = mStr.trim();
-        const d = new Date(cleanStr);
-        if (!isNaN(d.getTime()) && !/^\d+$/.test(cleanStr)) return d;
-        const numValue = Number(cleanStr);
-        if (!isNaN(numValue) && numValue > 30000 && numValue < 100000) {
-          return new Date((numValue - 25569) * 86400 * 1000);
-        }
-        const parts = cleanStr.split(/[\-\/\s]+/);
-        const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        let m = 5; let y = 2026; let dayVal = 1;
-        if (parts.length === 3) {
-          const p1_lower = parts[1].toLowerCase().substring(0, 3);
-          const mIdx = monthsShort.findIndex(x => x.toLowerCase() === p1_lower);
-          if (mIdx !== -1) {
-            m = mIdx;
-            const p0_num = parseInt(parts[0], 10);
-            const p2_num = parseInt(parts[2], 10);
-            if (!isNaN(p0_num)) dayVal = p0_num;
-            if (!isNaN(p2_num)) y = p2_num < 100 ? 2000 + p2_num : p2_num;
-          } else {
-            const p0_num = parseInt(parts[0], 10);
-            const p1_num = parseInt(parts[1], 10);
-            const p2_num = parseInt(parts[2], 10);
-            if (p0_num > 1900 && !isNaN(p1_num) && !isNaN(p2_num)) {
-              y = p0_num; m = p1_num - 1; dayVal = p2_num;
-            } else if (p2_num > 1900 && !isNaN(p1_num) && !isNaN(p0_num)) {
-              y = p2_num; m = p1_num - 1; dayVal = p0_num;
-            } else if (!isNaN(p0_num) && !isNaN(p1_num) && !isNaN(p2_num)) {
-              y = p2_num < 100 ? 2000 + p2_num : p2_num;
-              m = p1_num - 1;
-              dayVal = p0_num;
-            }
-          }
-        } else if (parts.length === 2) {
-          const p0_lower = parts[0].toLowerCase().substring(0, 3);
-          const mIdx0 = monthsShort.findIndex(x => x.toLowerCase() === p0_lower);
-          if (mIdx0 !== -1) {
-            m = mIdx0;
-            const yVal = parseInt(parts[1], 10);
-            if (!isNaN(yVal)) y = yVal < 100 ? 2000 + yVal : yVal;
-          } else {
-            const p1_lower = parts[1].toLowerCase().substring(0, 3);
-            const mIdx1 = monthsShort.findIndex(x => x.toLowerCase() === p1_lower);
-            if (mIdx1 !== -1) {
-              m = mIdx1;
-              const dVal = parseInt(parts[0], 10);
-              if (!isNaN(dVal)) dayVal = dVal;
-            }
-          }
-        }
-        return new Date(y, m, dayVal);
-      };
-
-      const parsedHistoryDates = historyPoints.map(p => parseMonthYearForDCA(p.month));
+      const parsedHistoryDates = historyPoints.map(p => robustParseDate(p.month));
       const diffs: number[] = [];
       for (let i = 1; i < parsedHistoryDates.length; i++) {
         const diffDays = Math.round(Math.abs(parsedHistoryDates[i].getTime() - parsedHistoryDates[i - 1].getTime()) / (1000 * 60 * 60 * 24));
@@ -241,36 +292,69 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
       historyReserves = tempCum;
     }
 
-    // 2. Reserves tới thời điểm forecast (Forecast cumulative oil in selected duration)
-    const forecastReserves = forecast.reduce((sum, rate) => sum + (rate * timeStepDays) / 1000, 0);
+    // Solve for q_current (theoretical model rate at end of history)
+    const t_end = N_h * (isDaily ? (1 / 30.416) : 1);
+    let q_current = q0;
+    if (N_h > 0) {
+      if (declineType === 'EXPONENTIAL') {
+        q_current = q0 * Math.exp(-decDecimal_monthly * t_end);
+      } else if (declineType === 'HARMONIC') {
+        q_current = q0 / (1 + decDecimal_monthly * t_end);
+      } else {
+        const b = Math.max(0.01, Math.min(0.99, bParam));
+        q_current = q0 / Math.pow(1 + b * decDecimal_monthly * t_end, 1 / b);
+      }
+    }
 
-    // 3. Remaining Reserves to cutoff
-    const d_annual = decDecimal * 12;
+    // Solve for forecast rates correctly matching the future forecast starting from end of history (t_end)
+    const forecastStepRates: number[] = [];
+    const t_start_forecast = N_h * (isDaily ? (1 / 30.416) : 1);
+    for (let idx = 1; idx <= forecastDuration; idx++) {
+      let modelVal = 0;
+      const t_months = t_start_forecast + idx;
+      if (declineType === 'EXPONENTIAL') {
+        modelVal = q0 * Math.exp(-decDecimal_monthly * t_months);
+      } else if (declineType === 'HARMONIC') {
+        modelVal = q0 / (1 + decDecimal_monthly * t_months);
+      } else {
+        const b = Math.max(0.01, Math.min(0.99, bParam));
+        modelVal = q0 / Math.pow(1 + b * decDecimal_monthly * t_months, 1 / b);
+      }
+      forecastStepRates.push(Math.round(Math.max(0, modelVal)));
+    }
+    const forecastReserves = forecastStepRates.reduce((sum, rate) => sum + (rate * timeStepDays) / 1000, 0);
+
+    // Starting rate for remaining operating life is the ACTUAL live rate at the end of history if available,
+    // which represents exact real-world conditions correctly.
+    const q_start = (historyPoints.length > 0) ? (historyPoints[historyPoints.length - 1].oilRate) : q_current;
+
+    // 3. Remaining Reserves and Years to operate starting from TODAY
+    const d_annual = decDecimal_monthly * 12;
     let remainingCalculated = 0;
     let yearsToAbandon = 0;
 
-    if (d_annual > 0 && q0 > abRate) {
+    if (d_annual > 0 && q_start > abRate) {
       if (declineType === 'EXPONENTIAL') {
-        const npBarrels = (q0 - abRate) * 365 / d_annual;
+        const npBarrels = (q_start - abRate) * 365 / d_annual;
         remainingCalculated = npBarrels / 1000;
-        yearsToAbandon = Math.log(q0 / abRate) / d_annual;
+        yearsToAbandon = Math.log(q_start / abRate) / d_annual;
       } else if (declineType === 'HARMONIC') {
-        const npBarrels = (q0 * 365 / d_annual) * Math.log(q0 / abRate);
+        const npBarrels = (q_start * 365 / d_annual) * Math.log(q_start / abRate);
         remainingCalculated = npBarrels / 1000;
-        yearsToAbandon = ((q0 / abRate) - 1) / d_annual;
+        yearsToAbandon = ((q_start / abRate) - 1) / d_annual;
       } else {
         const b = Math.max(0.01, Math.min(0.99, bParam));
-        const npBarrels = (Math.pow(q0, b) * 365 / (d_annual * (1 - b))) * 
-                          (Math.pow(q0, 1 - b) - Math.pow(abRate, 1 - b));
+        const npBarrels = (Math.pow(q_start, b) * 365 / (d_annual * (1 - b))) * 
+                          (Math.pow(q_start, 1 - b) - Math.pow(abRate, 1 - b));
         remainingCalculated = npBarrels / 1000;
-        yearsToAbandon = (Math.pow(q0 / abRate, b) - 1) / (b * d_annual);
+        yearsToAbandon = (Math.pow(q_start / abRate, b) - 1) / (b * d_annual);
       }
     }
 
     const trueEur = historyReserves + remainingCalculated;
 
     return { 
-      forecast, 
+      forecast: forecastStepRates, 
       reserves: {
         eur: parseFloat(trueEur.toFixed(2)),
         remainingReservesMbo: parseFloat(remainingCalculated.toFixed(2)),
@@ -294,62 +378,7 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     const N_h = historyPoints.length;
     const decDecimal = declineRate / 100;
 
-    const parseMonthYear = (mStr: string): Date => {
-      if (!mStr) return new Date();
-      const cleanStr = mStr.trim();
-      const d = new Date(cleanStr);
-      if (!isNaN(d.getTime())) return d;
-
-      // Handle Excel numeric serial dates
-      const numValue = Number(cleanStr);
-      if (!isNaN(numValue) && numValue > 30000 && numValue < 100000) {
-        return new Date((numValue - 25569) * 86400 * 1000);
-      }
-
-      const parts = cleanStr.split(/[\-\/\s]+/);
-      const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      let m = 5; // June Default
-      let y = 2026;
-      let dayVal = 1;
-
-      if (parts.length === 3) {
-        const p1_lower = parts[1].toLowerCase().substring(0, 3);
-        const mIdx = monthsShort.findIndex(x => x.toLowerCase() === p1_lower);
-        if (mIdx !== -1) {
-          m = mIdx;
-          const p0_num = parseInt(parts[0], 10);
-          const p2_num = parseInt(parts[2], 10);
-          if (!isNaN(p0_num)) dayVal = p0_num;
-          if (!isNaN(p2_num)) y = p2_num < 100 ? 2000 + p2_num : p2_num;
-        } else {
-          const p0_num = parseInt(parts[0], 10);
-          const p1_num = parseInt(parts[1], 10);
-          const p2_num = parseInt(parts[2], 10);
-          if (p0_num > 1900 && !isNaN(p1_num) && !isNaN(p2_num)) {
-            y = p0_num;
-            m = p1_num - 1;
-            dayVal = p2_num;
-          }
-        }
-      } else if (parts.length === 2) {
-        const p0_lower = parts[0].toLowerCase().substring(0, 3);
-        const mIdx0 = monthsShort.findIndex(x => x.toLowerCase() === p0_lower);
-        if (mIdx0 !== -1) {
-          m = mIdx0;
-          const yVal = parseInt(parts[1], 10);
-          if (!isNaN(yVal)) y = yVal < 100 ? 2000 + yVal : yVal;
-        } else {
-          const p1_lower = parts[1].toLowerCase().substring(0, 3);
-          const mIdx1 = monthsShort.findIndex(x => x.toLowerCase() === p1_lower);
-          if (mIdx1 !== -1) {
-            m = mIdx1;
-            const dVal = parseInt(parts[0], 10);
-            if (!isNaN(dVal)) dayVal = dVal;
-          }
-        }
-      }
-      return new Date(y, m, dayVal);
-    };
+    const parseMonthYear = robustParseDate;
 
     const parsedHistoryDates = historyPoints.map(p => parseMonthYear(p.month));
     let isDaily = false;
@@ -372,8 +401,45 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     }
 
     const formatLabel = (date: Date): string => {
+      const ref = lastHistoryLabel || '';
+      const cleanRef = ref.trim();
+      
+      // Pattern 1: DD-MM-YYYY style
+      if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(cleanRef)) {
+        const d = String(date.getDate()).padStart(2, '0');
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const y = date.getFullYear();
+        return `${d}-${m}-${y}`;
+      }
+      
+      // Pattern 2: DD/MM/YYYY style
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cleanRef)) {
+        const d = String(date.getDate()).padStart(2, '0');
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const y = date.getFullYear();
+        return `${d}/${m}/${y}`;
+      }
+
+      // Pattern 3: MMM YY style (e.g. "Jun 25", "May 26")
       const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return `${monthsShort[date.getMonth()]} ${date.getFullYear()}`;
+      if (/^[A-Za-z]{3}\s+\d{2}$/.test(cleanRef)) {
+        const mName = monthsShort[date.getMonth()];
+        const yTwoDigit = String(date.getFullYear()).substring(2);
+        return `${mName} ${yTwoDigit}`;
+      }
+
+      // Pattern 4: MMM-YY style (e.g. "Jun-25")
+      if (/^[A-Za-z]{3}-\d{2}$/.test(cleanRef)) {
+        const mName = monthsShort[date.getMonth()];
+        const yTwoDigit = String(date.getFullYear()).substring(2);
+        return `${mName}-${yTwoDigit}`;
+      }
+
+      // Default fallback
+      const d = String(date.getDate()).padStart(2, '0');
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const y = date.getFullYear();
+      return `${d}-${m}-${y}`;
     };
 
     const lastHistoryLabel = N_h > 0 ? historyPoints[N_h - 1].month : 'May 26';
@@ -387,22 +453,24 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
       isForecast: boolean;
     }[] = [];
 
+    const decDecimal_monthly = declineRate / 100;
+
     if (N_h > 0) {
-      // 1. Matched Model over History (t = 0 ... N_h-1)
+      // 1. Matched Model over History (t_months continuous scaling from 0 to N_h-1)
       for (let t = 0; t < N_h; t++) {
         const histVal = historyPoints[t].oilRate;
+        const timeInMonths = t * (isDaily ? (1 / 30.416) : 1);
         let modelVal = 0;
         if (declineType === 'EXPONENTIAL') {
-          modelVal = q0 * Math.exp(-decDecimal * t);
+          modelVal = q0 * Math.exp(-decDecimal_monthly * timeInMonths);
         } else if (declineType === 'HARMONIC') {
-          modelVal = q0 / (1 + decDecimal * t);
+          modelVal = q0 / (1 + decDecimal_monthly * timeInMonths);
         } else {
           const b = Math.max(0.01, Math.min(0.99, bParam));
-          modelVal = q0 / Math.pow(1 + b * decDecimal * t, 1 / b);
+          modelVal = q0 / Math.pow(1 + b * decDecimal_monthly * timeInMonths, 1 / b);
         }
 
-        const histDate = parseMonthYear(historyPoints[t].month);
-        const labelStr = formatLabel(histDate);
+        const labelStr = historyPoints[t].month;
 
         plotPoints.push({
           t,
@@ -413,29 +481,31 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
         });
       }
 
-      // 2. Future Forecast continuation (t = N_h ... N_h + forecastDuration - 1)
-      for (let t = N_h; t < N_h + forecastDuration; t++) {
+      // 2. Future Forecast continuation starting from end of history
+      for (let idx = 0; idx < forecastDuration; idx++) {
+        const countOffset = idx + 1;
+        const timeInMonths = ((N_h - 1) * (isDaily ? (1 / 30.416) : 1)) + countOffset;
+        
         let modelVal = 0;
         if (declineType === 'EXPONENTIAL') {
-          modelVal = q0 * Math.exp(-decDecimal * t);
+          modelVal = q0 * Math.exp(-decDecimal_monthly * timeInMonths);
         } else if (declineType === 'HARMONIC') {
-          modelVal = q0 / (1 + decDecimal * t);
+          modelVal = q0 / (1 + decDecimal_monthly * timeInMonths);
         } else {
           const b = Math.max(0.01, Math.min(0.99, bParam));
-          modelVal = q0 / Math.pow(1 + b * decDecimal * t, 1 / b);
+          modelVal = q0 / Math.pow(1 + b * decDecimal_monthly * timeInMonths, 1 / b);
         }
 
-        const countOffset = t - N_h + 1;
         let forecastDate: Date;
         if (isDaily) {
-          forecastDate = new Date(lastHistoryDate.getTime() + countOffset * 24 * 60 * 60 * 1000);
+          forecastDate = new Date(lastHistoryDate.getTime() + countOffset * 30.416 * 24 * 60 * 60 * 1000);
         } else {
           forecastDate = new Date(lastHistoryDate.getFullYear(), lastHistoryDate.getMonth() + countOffset, 1);
         }
         const labelStr = formatLabel(forecastDate);
 
         plotPoints.push({
-          t,
+          t: N_h + idx,
           label: labelStr,
           actualRate: null,
           modelRate: Math.max(0, Math.round(modelVal)),
@@ -448,12 +518,12 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
       for (let t = 0; t < forecastDuration; t++) {
         let modelVal = 0;
         if (declineType === 'EXPONENTIAL') {
-          modelVal = q0 * Math.exp(-decDecimal * t);
+          modelVal = q0 * Math.exp(-decDecimal_monthly * t);
         } else if (declineType === 'HARMONIC') {
-          modelVal = q0 / (1 + decDecimal * t);
+          modelVal = q0 / (1 + decDecimal_monthly * t);
         } else {
           const b = Math.max(0.01, Math.min(0.99, bParam));
-          modelVal = q0 / Math.pow(1 + b * decDecimal * t, 1 / b);
+          modelVal = q0 / Math.pow(1 + b * decDecimal_monthly * t, 1 / b);
         }
 
         const forecastDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + t, 1);
@@ -776,8 +846,24 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     const history = selectedWell.history;
     const n = history.length;
 
+    // Detect if history is daily or monthly dynamically to scale independent variable (t) to MONTHS
+    let isDaily = false;
+    const parseMonthYearForFit = robustParseDate;
+
+    const parsedDates = history.map(p => parseMonthYearForFit(p.month));
+    const diffs: number[] = [];
+    for (let i = 1; i < parsedDates.length; i++) {
+      const diffDays = Math.round(Math.abs(parsedDates[i].getTime() - parsedDates[i - 1].getTime()) / (1000 * 60 * 60 * 24));
+      diffs.push(diffDays);
+    }
+    diffs.sort((a, b) => a - b);
+    const medianDiff = diffs[Math.floor(diffs.length / 2)];
+    if (medianDiff < 15 && medianDiff > 0) {
+      isDaily = true;
+    }
+
     // Linear regression on exponential decline model:
-    // ln(q_t) = ln(q_0) - D_i * t
+    // ln(q_t) = ln(q_0) - D_i * t (where t is always in MONTHS)
     let sumT = 0;
     let sumY = 0;
     let sumT2 = 0;
@@ -787,11 +873,12 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     for (let t = 0; t < n; t++) {
       const q = history[t].oilRate;
       if (q > 0) {
+        const t_months = t * (isDaily ? (1 / 30.416) : 1);
         const y = Math.log(q);
-        sumT += t;
+        sumT += t_months;
         sumY += y;
-        sumT2 += t * t;
-        sumTY += t * y;
+        sumT2 += t_months * t_months;
+        sumTY += t_months * y;
         validCount++;
       }
     }
@@ -809,8 +896,9 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     for (let t = 0; t < n; t++) {
       const q = history[t].oilRate;
       if (q > 0) {
-        num += (t - meanT) * (Math.log(q) - meanY);
-        den += (t - meanT) * (t - meanT);
+        const t_months = t * (isDaily ? (1 / 30.416) : 1);
+        num += (t_months - meanT) * (Math.log(q) - meanY);
+        den += (t_months - meanT) * (t_months - meanT);
       }
     }
 
@@ -818,12 +906,12 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     let fittedDecline = declineRate;
 
     if (den > 0) {
-      const slope = num / den; // slope = -d
+      const slope = num / den; // slope = -d (monthly nominal decline)
       const intercept = meanY - slope * meanT; // intercept = ln(q0)
 
       const nominalDecline = -slope;
       fittedQ0 = Math.exp(intercept);
-      fittedDecline = nominalDecline * 100;
+      fittedDecline = nominalDecline * 100; // in percent per month
     } else {
       const sumRates = history.reduce((sum, h) => sum + h.oilRate, 0);
       fittedQ0 = sumRates / n;

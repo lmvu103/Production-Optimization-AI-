@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Well } from '../lib/oilfieldData';
-import { Activity, AlertTriangle, Droplets, Flame, HardDrive, TrendingUp } from 'lucide-react';
+import { Activity, AlertTriangle, Droplets, Flame, HardDrive, TrendingUp, Settings, Sliders, Globe, RefreshCw, Grid, SlidersHorizontal } from 'lucide-react';
 
 interface WellDashboardProps {
   wells: Well[];
@@ -12,147 +12,25 @@ interface WellDashboardProps {
 }
 
 const formatXAxisDate = (dateStr: string): string => {
-  if (!dateStr) return '';
-  const clean = dateStr.trim();
-  
-  // Handle numeric representation
-  const numericVal = Number(clean);
-  if (!isNaN(numericVal) && clean !== '') {
-    let d: Date;
-    if (numericVal > 30000 && numericVal < 100000) {
-      // Excel serial date serial number (e.g. 42537)
-      d = new Date((numericVal - 25569) * 86400 * 1000);
-    } else if (numericVal > 100000000000) {
-      // Unix timestamp in milliseconds
-      d = new Date(numericVal);
-    } else if (numericVal > 10000000 && numericVal < 100000000) {
-      // YYYYMMDD format (e.g., 20160616)
-      const yrStr = clean.substring(0, 4);
-      const moStr = clean.substring(4, 6);
-      const dyStr = clean.substring(6, 8);
-      const yr = parseInt(yrStr, 10);
-      const mo = parseInt(moStr, 10);
-      const dy = parseInt(dyStr, 10);
-      if (yr > 1900 && yr < 2100 && mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
-        d = new Date(yr, mo - 1, dy);
-      } else {
-        d = new Date(NaN);
-      }
-    } else {
-      // Assume unix seconds
-      d = new Date(numericVal * 1000);
-    }
-    
-    if (!isNaN(d.getTime())) {
-      const dayStr = String(d.getDate()).padStart(2, '0');
-      const monthStr = String(d.getMonth() + 1).padStart(2, '0');
-      const yearStr = d.getFullYear();
-      return `${dayStr}/${monthStr}/${yearStr}`;
-    }
-  }
-
-  // Handle standard format by splitting or mapping
-  const normalized = clean.toLowerCase()
-    .replace(/thg\s*/g, '')
-    .replace(/tháng\s*/g, '')
-    .replace(/thang\s*/g, '')
-    .trim();
-    
-  const parts = normalized.split(/[-/ ]+/);
-  const monthsEngShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const monthMap: Record<string, string> = {
-    jan: '01', feb: '02', mar: '03', apr: '04',
-    may: '05', jun: '06', jul: '07', aug: '08',
-    sep: '09', oct: '10', nov: '11', dec: '12',
-    'thg 01': '01', 'thg 02': '02', 'thg 03': '03', 'thg 04': '04',
-    'thg 05': '05', 'thg 06': '06', 'thg 07': '07', 'thg 08': '08',
-    'thg 09': '09', 'thg 10': '10', 'thg 11': '11', 'thg 12': '12',
-    '01': '01', '02': '02', '03': '03', '04': '04', '05': '05', '06': '06',
-    '07': '07', '08': '08', '09': '09', '10': '10', '11': '11', '12': '12',
-    '1': '01', '2': '02', '3': '03', '4': '04', '5': '05', '6': '06',
-    '7': '07', '8': '08', '9': '09'
-  };
-
-  // 1. Check if we can parse it as a valid built-in Javascript Date
-  const parsedDate = new Date(clean);
-  if (!isNaN(parsedDate.getTime()) && !/^\d+$/.test(clean)) {
-    const dayStr = String(parsedDate.getDate()).padStart(2, '0');
-    const monthStr = String(parsedDate.getMonth() + 1).padStart(2, '0');
-    const yearStr = parsedDate.getFullYear();
-    return `${dayStr}/${monthStr}/${yearStr}`;
-  }
-
-  if (parts.length === 3) {
-    let day = parseInt(parts[0], 10);
-    const mPart = parts[1];
-    let yr = parts[2];
-    if (yr.length === 2) {
-      yr = '20' + yr;
-    }
-    
-    let matchedMonth = '';
-    if (monthMap[mPart]) {
-      matchedMonth = monthMap[mPart];
-    } else {
-      const mIdx = parseInt(mPart, 10);
-      if (!isNaN(mIdx) && mIdx >= 1 && mIdx <= 12) {
-        matchedMonth = String(mIdx).padStart(2, '0');
-      }
-    }
-
-    if (matchedMonth && !isNaN(day)) {
-      return `${String(day).padStart(2, '0')}/${matchedMonth}/${yr}`;
-    }
-  }
-
-  if (parts.length === 3 && parts[0].length === 4) {
-    const yr = parts[0];
-    const mPart = parts[1];
-    const day = parseInt(parts[2], 10);
-    
-    let matchedMonth = '';
-    if (monthMap[mPart]) {
-      matchedMonth = monthMap[mPart];
-    } else {
-      const mIdx = parseInt(mPart, 10);
-      if (!isNaN(mIdx) && mIdx >= 1 && mIdx <= 12) {
-        matchedMonth = String(mIdx).padStart(2, '0');
-      }
-    }
-    
-    if (matchedMonth && !isNaN(day)) {
-      return `${String(day).padStart(2, '0')}/${matchedMonth}/${yr}`;
-    }
-  }
-
-  if (parts.length === 2) {
-    const p0 = parts[0];
-    const p1 = parts[1];
-    
-    let matchedMonth = '';
-    let yr = '';
-    
-    if (monthMap[p0]) {
-      matchedMonth = monthMap[p0];
-      yr = p1;
-    } else if (monthMap[p1]) {
-      matchedMonth = monthMap[p1];
-      yr = p0;
-    }
-    
-    if (matchedMonth && yr) {
-      if (yr.length === 2) {
-        yr = '20' + yr;
-      }
-      return `01/${matchedMonth}/${yr}`;
-    }
-  }
-
-  return dateStr;
+  return dateStr || '';
 };
 
 export default function WellDashboard({ wells, selectedWell, onSelectWell, onAudit }: WellDashboardProps) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  // States for custom scale limits (overrides of ranges max)
+  const [customMaxOilRate, setCustomMaxOilRate] = useState<number | ''>('');
+  const [customMaxOilCum, setCustomMaxOilCum] = useState<number | ''>('');
+  const [customMaxPressure, setCustomMaxPressure] = useState<number | ''>('');
+  const [customMaxGasLift, setCustomMaxGasLift] = useState<number | ''>('');
+  const [customMaxGor, setCustomMaxGor] = useState<number | ''>('');
+  const [customMaxWaterCut, setCustomMaxWaterCut] = useState<number | ''>('');
+
+  // States for format of axes
+  const [unitSystem, setUnitSystem] = useState<'imperial' | 'metric'>('imperial');
+  const [numberFormat, setNumberFormat] = useState<'raw' | 'compact' | 'scientific'>('raw');
+  const [gridLinesCount, setGridLinesCount] = useState<number>(5);
+  const [showConfigPanel, setShowConfigPanel] = useState<boolean>(false);
 
   // Formulating plot history based on active well or a realistic physical depletion fallback
   const plotHistory = useMemo(() => {
@@ -280,6 +158,119 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
       maxGor: cleanMaxGor
     };
   }, [plotHistory, selectedWell]);
+
+  // Effective Y-axis maximum limits in original units (Imperial) for plotting
+  const effMaxOilRate = useMemo(() => {
+    if (customMaxOilRate && Number(customMaxOilRate) > 0) {
+      if (unitSystem === 'metric') return Number(customMaxOilRate) / 0.158987;
+      return Number(customMaxOilRate);
+    }
+    return ranges.maxOilRate;
+  }, [customMaxOilRate, ranges.maxOilRate, unitSystem]);
+
+  const effMaxOilCum = useMemo(() => {
+    if (customMaxOilCum && Number(customMaxOilCum) > 0) {
+      if (unitSystem === 'metric') return Number(customMaxOilCum) / 0.158987;
+      return Number(customMaxOilCum);
+    }
+    return ranges.maxOilCum;
+  }, [customMaxOilCum, ranges.maxOilCum, unitSystem]);
+
+  const effMaxPressure = useMemo(() => {
+    if (customMaxPressure && Number(customMaxPressure) > 0) {
+      if (unitSystem === 'metric') return Number(customMaxPressure) / 0.0689476;
+      return Number(customMaxPressure);
+    }
+    return ranges.maxPressure;
+  }, [customMaxPressure, ranges.maxPressure, unitSystem]);
+
+  const effMaxGasLift = useMemo(() => {
+    if (customMaxGasLift && Number(customMaxGasLift) > 0) {
+      if (unitSystem === 'metric') return Number(customMaxGasLift) / 0.0283168;
+      return Number(customMaxGasLift);
+    }
+    return ranges.maxGasLift;
+  }, [customMaxGasLift, ranges.maxGasLift, unitSystem]);
+
+  const effMaxGor = useMemo(() => {
+    if (customMaxGor && Number(customMaxGor) > 0) {
+      if (unitSystem === 'metric') return Number(customMaxGor) / 0.1781076;
+      return Number(customMaxGor);
+    }
+    return ranges.maxGor;
+  }, [customMaxGor, ranges.maxGor, unitSystem]);
+
+  const effMaxWaterCut = useMemo(() => {
+    if (customMaxWaterCut && Number(customMaxWaterCut) > 0) {
+      return Number(customMaxWaterCut);
+    }
+    return 100;
+  }, [customMaxWaterCut]);
+
+  const resetCustomScales = () => {
+    setCustomMaxOilRate('');
+    setCustomMaxOilCum('');
+    setCustomMaxPressure('');
+    setCustomMaxGasLift('');
+    setCustomMaxGor('');
+    setCustomMaxWaterCut('');
+    if (onAudit) {
+      onAudit('Reset plot scales', 'Reset historical performance plot scales to automatic defaults.');
+    }
+  };
+
+  const formatValue = (val: number, type: 'oilRate' | 'oilCum' | 'pressure' | 'gasLift' | 'gor' | 'pct') => {
+    let converted = val;
+    let unitLabel = '';
+
+    if (unitSystem === 'metric') {
+      if (type === 'oilRate') {
+        converted = val * 0.158987;
+        unitLabel = 'm³/d';
+      } else if (type === 'oilCum') {
+        converted = val * 0.158987;
+        unitLabel = 'km³';
+      } else if (type === 'pressure') {
+        converted = val * 0.0689476;
+        unitLabel = 'bar';
+      } else if (type === 'gasLift') {
+        converted = val * 0.0283168;
+        unitLabel = 'k.m³/d';
+      } else if (type === 'gor') {
+        converted = val * 0.1781076;
+        unitLabel = 'm³/m³';
+      } else {
+        converted = val;
+        unitLabel = '%';
+      }
+    } else {
+      if (type === 'oilRate') {
+        unitLabel = 'bopd';
+      } else if (type === 'oilCum') {
+        unitLabel = 'Mstb';
+      } else if (type === 'pressure') {
+        unitLabel = 'psi';
+      } else if (type === 'gasLift') {
+        unitLabel = 'Mscf/d';
+      } else if (type === 'gor') {
+        unitLabel = 'scf/stb';
+      } else {
+        unitLabel = '%';
+      }
+    }
+
+    // Number format formatters
+    let numStr = '';
+    if (numberFormat === 'raw') {
+      numStr = converted >= 100 ? Math.round(converted).toLocaleString() : converted.toFixed(1);
+    } else if (numberFormat === 'scientific') {
+      numStr = converted.toExponential(2);
+    } else if (numberFormat === 'compact') {
+      numStr = Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(converted);
+    }
+
+    return { valStr: numStr, unit: unitLabel };
+  };
 
   // Overall oilfield overview KPIs on current well data
   const fieldSummary = useMemo(() => {
@@ -499,19 +490,53 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
           const yMax3 = 740;
           const yHeight = 200;
 
-          const getX = (index: number, total: number) => {
-            if (total <= 1) return leftMargin;
-            return leftMargin + (index / (total - 1)) * plotWidth;
+          const safeNum = (v: any, fallback = 0): number => {
+            const parsed = Number(v);
+            return isNaN(parsed) || !isFinite(parsed) ? fallback : parsed;
           };
 
-          const getY1Left = (val: number) => yMax1 - (val / (ranges.maxOilRate || 2500)) * yHeight;
-          const getY1Right = (val: number) => yMax1 - (val / (ranges.maxOilCum || 1400)) * yHeight;
+          const getX = (index: number, total: number) => {
+            const idx = safeNum(index);
+            const tot = safeNum(total);
+            if (tot <= 1) return leftMargin;
+            return leftMargin + (idx / (tot - 1)) * plotWidth;
+          };
+
+          const getY1Left = (val: any) => {
+            const v = safeNum(val);
+            const maxVal = safeNum(effMaxOilRate, 2500) || 2500;
+            return yMax1 - (v / maxVal) * yHeight;
+          };
+
+          const getY1Right = (val: any) => {
+            const v = safeNum(val);
+            const maxVal = safeNum(effMaxOilCum, 1400) || 1400;
+            return yMax1 - (v / maxVal) * yHeight;
+          };
           
-          const getY2Left = (val: number) => yMax2 - (val / (ranges.maxPressure || 3500)) * yHeight;
-          const getY2Right = (val: number) => yMax2 - (val / (ranges.maxGasLift || 1400)) * yHeight;
+          const getY2Left = (val: any) => {
+            const v = safeNum(val);
+            const maxVal = safeNum(effMaxPressure, 3500) || 3500;
+            return yMax2 - (v / maxVal) * yHeight;
+          };
+
+          const getY2Right = (val: any) => {
+            const v = safeNum(val);
+            const maxVal = safeNum(effMaxGasLift, 1400) || 1400;
+            return yMax2 - (v / maxVal) * yHeight;
+          };
           
-          const getY3Left = (val: number) => yMax3 - (val / (ranges.maxGor || 4000)) * yHeight;
-          const getY3Right = (val: number) => yMax3 - (val / 100) * yHeight;
+          const getY3Left = (val: any) => {
+            const v = safeNum(val);
+            const maxVal = safeNum(effMaxGor, 4000) || 4000;
+            return yMax3 - (v / maxVal) * yHeight;
+          };
+
+          const getY3Right = (val: any) => {
+            const v = safeNum(val);
+            const maxVal = safeNum(effMaxWaterCut, 100) || 100;
+            return yMax3 - (v / maxVal) * yHeight;
+          };
 
           // Build SVG Paths
           let oilRateArea = "";
@@ -587,37 +612,37 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
           }
 
           // Grid & Ticks loops
-          const ticksCount = 5;
+          const ticksCount = gridLinesCount;
           const leftTicks1 = [];
           for (let i = 0; i <= ticksCount; i++) {
-            const val = Math.round((ranges.maxOilRate / ticksCount) * i);
+            const val = Math.round((effMaxOilRate / ticksCount) * i);
             leftTicks1.push({ val, y: getY1Left(val) });
           }
           const rightTicks1 = [];
           for (let i = 0; i <= ticksCount; i++) {
-            const val = Math.round((ranges.maxOilCum / ticksCount) * i);
+            const val = Math.round((effMaxOilCum / ticksCount) * i);
             rightTicks1.push({ val, y: getY1Right(val) });
           }
 
           const leftTicks2 = [];
           for (let i = 0; i <= ticksCount; i++) {
-            const val = Math.round((ranges.maxPressure / ticksCount) * i);
+            const val = Math.round((effMaxPressure / ticksCount) * i);
             leftTicks2.push({ val, y: getY2Left(val) });
           }
           const rightTicks2 = [];
           for (let i = 0; i <= ticksCount; i++) {
-            const val = Math.round((ranges.maxGasLift / ticksCount) * i);
+            const val = Math.round((effMaxGasLift / ticksCount) * i);
             rightTicks2.push({ val, y: getY2Right(val) });
           }
 
           const leftTicks3 = [];
           for (let i = 0; i <= ticksCount; i++) {
-            const val = Math.round((ranges.maxGor / ticksCount) * i);
+            const val = Math.round((effMaxGor / ticksCount) * i);
             leftTicks3.push({ val, y: getY3Left(val) });
           }
           const rightTicks3 = [];
           for (let i = 0; i <= ticksCount; i++) {
-            const val = Math.round((100 / ticksCount) * i);
+            const val = Math.round((effMaxWaterCut / ticksCount) * i);
             rightTicks3.push({ val, y: getY3Right(val) });
           }
 
@@ -687,12 +712,26 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
           return (
             <div className="bg-[#0B1120] border border-slate-800 p-5 rounded-xl select-none relative">
               <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-4 gap-2 border-b border-slate-800 pb-3">
-                <div>
-                  <h3 className="text-sm font-semibold tracking-wider text-slate-200 uppercase font-mono flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
-                    Historic Reservoir SCADA Surveillance Plot ({selectedWell.name})
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold tracking-wider text-slate-200 uppercase font-mono flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-emerald-400" />
+                      Historic Reservoir SCADA Surveillance Plot ({selectedWell.name})
+                    </h3>
+                    <button
+                      id="toggle-plot-scale-config-btn"
+                      onClick={() => setShowConfigPanel(!showConfigPanel)}
+                      className={`text-[9px] leading-none font-mono font-bold px-2 py-1 rounded flex items-center gap-1 cursor-pointer transition-all ${
+                        showConfigPanel 
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.15)]' 
+                          : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 hover:border-emerald-500/40'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      {showConfigPanel ? 'Đóng Tùy Chỉnh' : 'Chỉnh Scale & Trục Trực Quan'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5 font-sans">
                     Aligns Oil rates, bottomhole pressure (BHP), wellhead pressure (THP), Water cut, and GOR directly from the well database hierarchy.
                   </p>
                 </div>
@@ -733,6 +772,173 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
                 </div>
               </div>
 
+              {/* Collapsible settings panel */}
+              {showConfigPanel && (
+                <div id="plot-axis-config-panel" className="mb-5 p-4 bg-[#050812]/90 border border-slate-800 rounded-lg text-slate-300 transition-all text-xs font-sans">
+                  <div className="flex flex-col lg:flex-row gap-4 justify-between border-b border-slate-850 pb-3 mb-4">
+                    <div className="flex flex-wrap gap-4 items-center">
+                      {/* Unit System Toggle */}
+                      <div>
+                        <span className="block text-[10px] font-bold text-slate-400 font-mono uppercase mb-1">Hệ Đơn Vị (Units)</span>
+                        <div className="flex rounded overflow-hidden border border-slate-800">
+                          <button
+                            id="unit-system-imperial"
+                            onClick={() => { setUnitSystem('imperial'); if (onAudit) onAudit('Change unit system', 'Set to Imperial (bopd, psi, stb)'); }}
+                            className={`px-3 py-1 text-[10px] font-mono select-none cursor-pointer font-bold ${unitSystem === 'imperial' ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-[#0B1120] text-slate-400 hover:text-slate-300'}`}
+                          >
+                            🇺🇸 Imperial
+                          </button>
+                          <button
+                            id="unit-system-metric"
+                            onClick={() => { setUnitSystem('metric'); if (onAudit) onAudit('Change unit system', 'Set to Metric (m3/d, bar)'); }}
+                            className={`px-3 py-1 text-[10px] font-mono select-none cursor-pointer font-bold ${unitSystem === 'metric' ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-[#0B1120] text-slate-400 hover:text-slate-300'}`}
+                          >
+                            🇪🇺 Metric (SI)
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Number Formatting Toggle */}
+                      <div>
+                        <span className="block text-[10px] font-bold text-slate-400 font-mono uppercase mb-1">Định dạng số trục (Axis Number Format)</span>
+                        <select
+                          id="number-format-select"
+                          value={numberFormat}
+                          onChange={(e) => setNumberFormat(e.target.value as any)}
+                          className="bg-[#0B1120] border border-slate-800 text-slate-300 text-[10px] font-mono px-2 py-1 rounded focus:outline-none focus:border-cyan-500 cursor-pointer"
+                        >
+                          <option value="raw">Mặc định (Raw/Commas)</option>
+                          <option value="compact">Thu gọn (Compact: K, M)</option>
+                          <option value="scientific">Khoa học (Scientific: 1.2e+4)</option>
+                        </select>
+                      </div>
+
+                      {/* Grid Density Selection */}
+                      <div>
+                        <span className="block text-[10px] font-bold text-slate-400 font-mono uppercase mb-1">Số vạch chia (Axis Ticks Density)</span>
+                        <select
+                          id="grid-density-select"
+                          value={gridLinesCount}
+                          onChange={(e) => setGridLinesCount(Number(e.target.value))}
+                          className="bg-[#0B1120] border border-slate-800 text-slate-300 text-[10px] font-mono px-2 py-1 rounded focus:outline-none focus:border-cyan-500 cursor-pointer"
+                        >
+                          <option value={3}>Thưa (3 ticks)</option>
+                          <option value={4}>4 ticks</option>
+                          <option value={5}>Mặc định (5 ticks)</option>
+                          <option value={6}>6 ticks</option>
+                          <option value={8}>Dày (8 ticks)</option>
+                          <option value={10}>Rất dày (10 ticks)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <button
+                      id="reset-scales-btn"
+                      onClick={resetCustomScales}
+                      className="self-end bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-750 text-slate-400 hover:text-slate-200 text-[10px] font-mono px-2.5 py-1.5 rounded flex items-center gap-1 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Đặt lại mặc định
+                    </button>
+                  </div>
+
+                  {/* Manual custom scales configuration */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 font-sans">
+                    {/* Plot 1 Controls */}
+                    <div className="bg-[#0B1120]/60 p-2.5 rounded border border-slate-850 space-y-2">
+                      <span className="block text-[10px] font-bold text-emerald-400 font-mono uppercase border-b border-emerald-950 pb-1">
+                        Plot 1: Sản lượng & Tích lũy (Oil)
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-mono mb-1">Max Oil Rate ({unitSystem === 'metric' ? 'm³/d' : 'bopd'}):</label>
+                          <input
+                            id="custom-oilrate-scale-input"
+                            type="number"
+                            value={customMaxOilRate}
+                            onChange={(e) => setCustomMaxOilRate(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+                            placeholder={`Tự động (${formatValue(ranges.maxOilRate, 'oilRate').valStr})`}
+                            className="w-full bg-[#050812] border border-slate-850 px-2 py-1 rounded text-[11px] font-mono placeholder:text-slate-605 focus:border-cyan-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-mono mb-1">Max Oil Cum ({unitSystem === 'metric' ? 'km³' : 'Mstb'}):</label>
+                          <input
+                            id="custom-oilcum-scale-input"
+                            type="number"
+                            value={customMaxOilCum}
+                            onChange={(e) => setCustomMaxOilCum(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+                            placeholder={`Tự động (${formatValue(ranges.maxOilCum, 'oilCum').valStr})`}
+                            className="w-full bg-[#050812] border border-slate-850 px-2 py-1 rounded text-[11px] font-mono placeholder:text-slate-605 focus:border-cyan-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Plot 2 Controls */}
+                    <div className="bg-[#0B1120]/60 p-2.5 rounded border border-slate-850 space-y-2">
+                      <span className="block text-[10px] font-bold text-slate-300 font-mono uppercase border-b border-slate-855 pb-1">
+                        Plot 2: Áp suất & Gas Lift
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-mono mb-1">Max Pressure ({unitSystem === 'metric' ? 'bar' : 'psi'}):</label>
+                          <input
+                            id="custom-pressure-scale-input"
+                            type="number"
+                            value={customMaxPressure}
+                            onChange={(e) => setCustomMaxPressure(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+                            placeholder={`Tự động (${formatValue(ranges.maxPressure, 'pressure').valStr})`}
+                            className="w-full bg-[#050812] border border-slate-855 px-2 py-1 rounded text-[11px] font-mono placeholder:text-slate-605 focus:border-cyan-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-mono mb-1">Max Gas Lift ({unitSystem === 'metric' ? 'k.m³/d' : 'Mscf/d'}):</label>
+                          <input
+                            id="custom-gaslift-scale-input"
+                            type="number"
+                            value={customMaxGasLift}
+                            onChange={(e) => setCustomMaxGasLift(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+                            placeholder={`Tự động (${formatValue(ranges.maxGasLift, 'gasLift').valStr})`}
+                            className="w-full bg-[#050812] border border-slate-855 px-2 py-1 rounded text-[11px] font-mono placeholder:text-slate-605 focus:border-cyan-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Plot 3 Controls */}
+                    <div className="bg-[#0B1120]/60 p-2.5 rounded border border-slate-850 space-y-2 lg:col-span-1 md:col-span-2">
+                      <span className="block text-[10px] font-bold text-rose-400 font-mono uppercase border-b border-rose-950 pb-1">
+                        Plot 3: GOR &amp; Water Cut
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-mono mb-1">Max GOR ({unitSystem === 'metric' ? 'm³/m³' : 'scf/stb'}):</label>
+                          <input
+                            id="custom-gor-scale-input"
+                            type="number"
+                            value={customMaxGor}
+                            onChange={(e) => setCustomMaxGor(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+                            placeholder={`Tự động (${formatValue(ranges.maxGor, 'gor').valStr})`}
+                            className="w-full bg-[#050812] border border-slate-850 px-2 py-1 rounded text-[11px] font-mono placeholder:text-slate-605 focus:border-cyan-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-mono mb-1">Max Water Cut (%):</label>
+                          <input
+                            id="custom-wct-scale-input"
+                            type="number"
+                            value={customMaxWaterCut}
+                            onChange={(e) => setCustomMaxWaterCut(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+                            placeholder="Tự động (100%)"
+                            className="w-full bg-[#050812] border border-slate-850 px-2 py-1 rounded text-[11px] font-mono placeholder:text-slate-605 focus:border-cyan-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Main SVG workspace */}
               <div className="relative w-full overflow-hidden">
                 <svg 
@@ -746,47 +952,69 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
                   {leftTicks1.map((tick, i) => (
                     <g key={i}>
                       <line x1={leftMargin} y1={tick.y} x2={leftMargin + plotWidth} y2={tick.y} stroke="#1e293b" strokeWidth="0.5" strokeDasharray="3,3" />
-                      <text x={leftMargin - 10} y={tick.y + 4} fill="#10b981" fontSize="10" fontFamily="monospace" textAnchor="end">{tick.val}</text>
+                      <text x={leftMargin - 10} y={tick.y + 4} fill="#10b981" fontSize="10" fontFamily="monospace" textAnchor="end">
+                        {formatValue(tick.val, 'oilRate').valStr}
+                      </text>
                     </g>
                   ))}
                   {rightTicks1.map((tick, i) => (
                     <g key={i}>
-                      <text x={leftMargin + plotWidth + 10} y={tick.y + 4} fill="#047857" fontSize="10" fontFamily="monospace" textAnchor="start">{tick.val}</text>
+                      <text x={leftMargin + plotWidth + 10} y={tick.y + 4} fill="#047857" fontSize="10" fontFamily="monospace" textAnchor="start">
+                        {formatValue(tick.val, 'oilCum').valStr}
+                      </text>
                     </g>
                   ))}
-                  <text x={20} y={(yMin1 + yMax1) / 2} fill="#10b981" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(-90, 20, ${(yMin1 + yMax1) / 2})`}>Oil rate (bopd)</text>
-                  <text x={1000 - 20} y={(yMin1 + yMax1) / 2} fill="#047857" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(90, 1000 - 20, ${(yMin1 + yMax1) / 2})`}>Oil cumulative (Mstb)</text>
+                  <text x={20} y={(yMin1 + yMax1) / 2} fill="#10b981" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(-90, 20, ${(yMin1 + yMax1) / 2})`}>
+                    Oil rate ({unitSystem === 'metric' ? 'm³/d' : 'bopd'})
+                  </text>
+                  <text x={1000 - 20} y={(yMin1 + yMax1) / 2} fill="#047857" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(90, 1000 - 20, ${(yMin1 + yMax1) / 2})`}>
+                    Oil cumulative ({unitSystem === 'metric' ? 'km³' : 'Mstb'})
+                  </text>
 
                   {/* --- PANEL 2 grids & background rect --- */}
                   <rect x={leftMargin} y={yMin2} width={plotWidth} height={yHeight} fill="#050812" fillOpacity="0.4" stroke="#334155" strokeWidth="0.5" />
                   {leftTicks2.map((tick, i) => (
                     <g key={i}>
                       <line x1={leftMargin} y1={tick.y} x2={leftMargin + plotWidth} y2={tick.y} stroke="#1e293b" strokeWidth="0.5" strokeDasharray="3,3" />
-                      <text x={leftMargin - 10} y={tick.y + 4} fill="#cbd5e1" fontSize="10" fontFamily="monospace" textAnchor="end">{tick.val}</text>
+                      <text x={leftMargin - 10} y={tick.y + 4} fill="#cbd5e1" fontSize="10" fontFamily="monospace" textAnchor="end">
+                        {formatValue(tick.val, 'pressure').valStr}
+                      </text>
                     </g>
                   ))}
                   {rightTicks2.map((tick, i) => (
                     <g key={i}>
-                      <text x={leftMargin + plotWidth + 10} y={tick.y + 4} fill="#f59e0b" fontSize="10" fontFamily="monospace" textAnchor="start">{tick.val}</text>
+                      <text x={leftMargin + plotWidth + 10} y={tick.y + 4} fill="#f59e0b" fontSize="10" fontFamily="monospace" textAnchor="start">
+                        {formatValue(tick.val, 'gasLift').valStr}
+                      </text>
                     </g>
                   ))}
-                  <text x={20} y={(yMin2 + yMax2) / 2} fill="#cbd5e1" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(-90, 20, ${(yMin2 + yMax2) / 2})`}>BHP &amp; THP (Psi)</text>
-                  <text x={1000 - 20} y={(yMin2 + yMax2) / 2} fill="#f59e0b" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(90, 1000 - 20, ${(yMin2 + yMax2) / 2})`}>Gas lift (Mscf/d)</text>
+                  <text x={20} y={(yMin2 + yMax2) / 2} fill="#cbd5e1" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(-90, 20, ${(yMin2 + yMax2) / 2})`}>
+                    BHP &amp; THP ({unitSystem === 'metric' ? 'bar' : 'psi'})
+                  </text>
+                  <text x={1000 - 20} y={(yMin2 + yMax2) / 2} fill="#f59e0b" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(90, 1000 - 20, ${(yMin2 + yMax2) / 2})`}>
+                    Gas lift ({unitSystem === 'metric' ? 'k.m³/d' : 'Mscf/d'})
+                  </text>
 
                   {/* --- PANEL 3 grids & background rect --- */}
                   <rect x={leftMargin} y={yMin3} width={plotWidth} height={yHeight} fill="#050812" fillOpacity="0.4" stroke="#334155" strokeWidth="0.5" />
                   {leftTicks3.map((tick, i) => (
                     <g key={i}>
                       <line x1={leftMargin} y1={tick.y} x2={leftMargin + plotWidth} y2={tick.y} stroke="#1e293b" strokeWidth="0.5" strokeDasharray="3,3" />
-                      <text x={leftMargin - 10} y={tick.y + 4} fill="#f43f5e" fontSize="10" fontFamily="monospace" textAnchor="end">{tick.val}</text>
+                      <text x={leftMargin - 10} y={tick.y + 4} fill="#f43f5e" fontSize="10" fontFamily="monospace" textAnchor="end">
+                        {formatValue(tick.val, 'gor').valStr}
+                      </text>
                     </g>
                   ))}
                   {rightTicks3.map((tick, i) => (
                     <g key={i}>
-                      <text x={leftMargin + plotWidth + 10} y={tick.y + 4} fill="#cbd5e1" fontSize="10" fontFamily="monospace" textAnchor="start">{tick.val}%</text>
+                      <text x={leftMargin + plotWidth + 10} y={tick.y + 4} fill="#cbd5e1" fontSize="10" fontFamily="monospace" textAnchor="start">
+                        {formatValue(tick.val, 'pct').valStr}%
+                      </text>
                     </g>
                   ))}
-                  <text x={20} y={(yMin3 + yMax3) / 2} fill="#f43f5e" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(-90, 20, ${(yMin3 + yMax3) / 2})`}>GOR (Mscf/stb)</text>
+                  <text x={20} y={(yMin3 + yMax3) / 2} fill="#f43f5e" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(-90, 20, ${(yMin3 + yMax3) / 2})`}>
+                    GOR ({unitSystem === 'metric' ? 'm³/m³' : 'scf/stb'})
+                  </text>
                   <text x={1000 - 20} y={(yMin3 + yMax3) / 2} fill="#cbd5e1" fontSize="11" fontFamily="sans-serif" textAnchor="middle" transform={`rotate(90, 1000 - 20, ${(yMin3 + yMax3) / 2})`}>Wct (%) - Choke (1/64&apos;)</text>
 
                   {/* --- PLOT DATA PATHS --- */}
@@ -872,29 +1100,41 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
                   <div className="space-y-1.5 text-slate-300">
                     <div className="flex justify-between">
                       <span className="text-slate-400">Oil Rate:</span>
-                      <span className="text-emerald-400 font-bold">{ranges.data[hoverIndex].oilRate.toLocaleString()} bopd</span>
+                      <span className="text-emerald-400 font-bold">
+                        {formatValue(ranges.data[hoverIndex].oilRate, 'oilRate').valStr} {formatValue(ranges.data[hoverIndex].oilRate, 'oilRate').unit}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-400">Oil Cumulative:</span>
-                      <span className="text-[#10b981] font-bold">{Math.round(ranges.data[hoverIndex].oilCum).toLocaleString()} Mstb</span>
+                      <span className="text-[#10b981] font-bold">
+                        {formatValue(ranges.data[hoverIndex].oilCum, 'oilCum').valStr} {formatValue(ranges.data[hoverIndex].oilCum, 'oilCum').unit}
+                      </span>
                     </div>
                     <div className="flex justify-between border-t border-slate-900/80 pt-1.5 mt-1">
                       <span className="text-slate-400 font-medium text-[10px]">BHP (Pressure):</span>
-                      <span className="text-white font-bold">{ranges.data[hoverIndex].bottomHolePressure.toLocaleString()} psi</span>
+                      <span className="text-white font-bold">
+                        {formatValue(ranges.data[hoverIndex].bottomHolePressure, 'pressure').valStr} {formatValue(ranges.data[hoverIndex].bottomHolePressure, 'pressure').unit}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-400 font-medium text-[10px]">THP (Wellhead):</span>
-                      <span className="text-red-400 font-bold">{ranges.data[hoverIndex].wellheadPressure.toLocaleString()} psi</span>
+                      <span className="text-red-400 font-bold">
+                        {formatValue(ranges.data[hoverIndex].wellheadPressure, 'pressure').valStr} {formatValue(ranges.data[hoverIndex].wellheadPressure, 'pressure').unit}
+                      </span>
                     </div>
                     {ranges.data[hoverIndex].gasLift > 0 && (
                       <div className="flex justify-between">
                         <span className="text-slate-400">Gas Injection:</span>
-                        <span className="text-amber-400 font-bold">{ranges.data[hoverIndex].gasLift.toLocaleString()} mscf/d</span>
+                        <span className="text-amber-400 font-bold">
+                          {formatValue(ranges.data[hoverIndex].gasLift, 'gasLift').valStr} {formatValue(ranges.data[hoverIndex].gasLift, 'gasLift').unit}
+                        </span>
                       </div>
                     )}
                     <div className="flex justify-between border-t border-slate-900/80 pt-1.5 mt-1">
                       <span className="text-slate-400">GOR:</span>
-                      <span className="text-rose-400 font-bold">{ranges.data[hoverIndex].gor.toLocaleString()} scf/stb</span>
+                      <span className="text-rose-400 font-bold">
+                        {formatValue(ranges.data[hoverIndex].gor, 'gor').valStr} {formatValue(ranges.data[hoverIndex].gor, 'gor').unit}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-400">Water Cut (WCT):</span>
