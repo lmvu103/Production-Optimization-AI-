@@ -22,9 +22,10 @@ const robustParseDate = (dateStr: string): Date => {
   // Handle numeric representation
   const numericVal = Number(clean);
   if (!isNaN(numericVal) && clean !== '') {
-    if (numericVal > 30000 && numericVal < 100000) {
-      // Excel serial date number
-      return new Date((numericVal - 25569) * 86400 * 1000);
+    if (numericVal >= 20000 && numericVal <= 100000) {
+      // Excel serial date number - use UTC components to avoid timezone shift
+      const d = new Date((numericVal - 25569) * 86400 * 1000);
+      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
     } else if (numericVal > 100000000000) {
       // Unix timestamp in milliseconds
       return new Date(numericVal);
@@ -542,11 +543,14 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     const allRates = plotPoints.flatMap(p => [p.actualRate || 0, p.modelRate]);
     const maxVal = Math.max(100, ...allRates, q0) * 1.1;
 
+    const safeCoord = (val: number, fallback = 0) => isNaN(val) || !isFinite(val) ? fallback : val;
+
     const points = plotPoints.map((p, idx) => {
-      const x = padX_left + (idx / (plotPoints.length - 1)) * (width - padX_left - padX_right);
-      const y = height - padY_bottom - (p.modelRate / maxVal) * (height - padY_top - padY_bottom);
+      const x = safeCoord(padX_left + (idx / Math.max(1, plotPoints.length - 1)) * (width - padX_left - padX_right), padX_left);
+      const rawY = height - padY_bottom - (p.modelRate / maxVal) * (height - padY_top - padY_bottom);
+      const y = safeCoord(rawY, height - padY_bottom);
       const actualY = p.actualRate !== null 
-        ? height - padY_bottom - (p.actualRate / maxVal) * (height - padY_top - padY_bottom)
+        ? safeCoord(height - padY_bottom - (p.actualRate / maxVal) * (height - padY_top - padY_bottom), height - padY_bottom)
         : 0;
 
       return {
@@ -714,8 +718,9 @@ export default function TechnicalCalculators({ wells, selectedWell, onSelectWell
     const maxP = Math.max(1500, Math.ceil((nodalPr || 4000) / 500) * 500 + 500);
 
     const translatePoint = (q: number, p: number) => {
-      const x = padding + (q / maxQ) * (width - padding * 2);
-      const y = height - padding - (p / maxP) * (height - padding * 2);
+      const safeCoord = (val: number, fallback = 0) => isNaN(val) || !isFinite(val) ? fallback : val;
+      const x = safeCoord(padding + (q / maxQ) * (width - padding * 2), padding);
+      const y = safeCoord(height - padding - (p / maxP) * (height - padding * 2), height - padding);
       return { x, y };
     };
 

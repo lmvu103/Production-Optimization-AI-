@@ -499,43 +499,43 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
             const idx = safeNum(index);
             const tot = safeNum(total);
             if (tot <= 1) return leftMargin;
-            return leftMargin + (idx / (tot - 1)) * plotWidth;
+            return safeNum(leftMargin + (idx / (tot - 1)) * plotWidth, leftMargin);
           };
 
           const getY1Left = (val: any) => {
             const v = safeNum(val);
             const maxVal = safeNum(effMaxOilRate, 2500) || 2500;
-            return yMax1 - (v / maxVal) * yHeight;
+            return safeNum(yMax1 - (v / maxVal) * yHeight, yMax1);
           };
 
           const getY1Right = (val: any) => {
             const v = safeNum(val);
             const maxVal = safeNum(effMaxOilCum, 1400) || 1400;
-            return yMax1 - (v / maxVal) * yHeight;
+            return safeNum(yMax1 - (v / maxVal) * yHeight, yMax1);
           };
           
           const getY2Left = (val: any) => {
             const v = safeNum(val);
             const maxVal = safeNum(effMaxPressure, 3500) || 3500;
-            return yMax2 - (v / maxVal) * yHeight;
+            return safeNum(yMax2 - (v / maxVal) * yHeight, yMax2);
           };
 
           const getY2Right = (val: any) => {
             const v = safeNum(val);
             const maxVal = safeNum(effMaxGasLift, 1400) || 1400;
-            return yMax2 - (v / maxVal) * yHeight;
+            return safeNum(yMax2 - (v / maxVal) * yHeight, yMax2);
           };
           
           const getY3Left = (val: any) => {
             const v = safeNum(val);
             const maxVal = safeNum(effMaxGor, 4000) || 4000;
-            return yMax3 - (v / maxVal) * yHeight;
+            return safeNum(yMax3 - (v / maxVal) * yHeight, yMax3);
           };
 
           const getY3Right = (val: any) => {
             const v = safeNum(val);
             const maxVal = safeNum(effMaxWaterCut, 100) || 100;
-            return yMax3 - (v / maxVal) * yHeight;
+            return safeNum(yMax3 - (v / maxVal) * yHeight, yMax3);
           };
 
           // Build SVG Paths
@@ -1034,10 +1034,10 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
 
                   {/* Panel 3 Interactive Points Markers */}
                   {ranges.data.map((d, i) => (
-                    <circle key={`gor-${i}`} cx={getX(i, ranges.data.length)} cy={getY3Left(d.gor)} r="2" fill="#f43f5e" />
+                    <circle key={`gor-${i}`} cx={getX(i, ranges.data.length)} cy={safeNum(getY3Left(d.gor), yMax3)} r="2" fill="#f43f5e" />
                   ))}
                   {ranges.data.map((d, i) => (
-                    <polygon key={`wct-${i}`} points={`${getX(i, ranges.data.length)},${getY3Right(d.waterCut) - 3} ${getX(i, ranges.data.length) - 3},${getY3Right(d.waterCut) + 3} ${getX(i, ranges.data.length) + 3},${getY3Right(d.waterCut) + 3}`} fill="#2563eb" />
+                    <polygon key={`wct-${i}`} points={`${getX(i, ranges.data.length)},${safeNum(getY3Right(d.waterCut), yMax3) - 3} ${getX(i, ranges.data.length) - 3},${safeNum(getY3Right(d.waterCut), yMax3) + 3} ${getX(i, ranges.data.length) + 3},${safeNum(getY3Right(d.waterCut), yMax3) + 3}`} fill="#2563eb" />
                   ))}
 
                    {/* --- BOTTOM X AXIS DATE TICK LABELING --- */}
@@ -1068,18 +1068,18 @@ export default function WellDashboard({ wells, selectedWell, onSelectWell, onAud
                       <line x1={getX(hoverIndex, ranges.data.length)} y1={yMin1 - 10} x2={getX(hoverIndex, ranges.data.length)} y2={yMax3 + 10} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="3,3" />
                       
                       {/* Intersects markers */}
-                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={getY1Left(ranges.data[hoverIndex].oilRate)} r="4.5" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
-                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={getY1Right(ranges.data[hoverIndex].oilCum)} r="4.5" fill="#047857" stroke="#ffffff" strokeWidth="1.5" />
+                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={safeNum(getY1Left(ranges.data[hoverIndex].oilRate), yMax1)} r="4.5" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
+                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={safeNum(getY1Right(ranges.data[hoverIndex].oilCum), yMax1)} r="4.5" fill="#047857" stroke="#ffffff" strokeWidth="1.5" />
                       
-                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={getY2Left(ranges.data[hoverIndex].bottomHolePressure)} r="4.5" fill="#ffffff" stroke="#050812" strokeWidth="1.5" />
-                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={getY2Left(ranges.data[hoverIndex].wellheadPressure)} r="4.5" fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" />
+                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={safeNum(getY2Left(ranges.data[hoverIndex].bottomHolePressure), yMax2)} r="4.5" fill="#ffffff" stroke="#050812" strokeWidth="1.5" />
+                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={safeNum(getY2Left(ranges.data[hoverIndex].wellheadPressure), yMax2)} r="4.5" fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" />
                       {ranges.data[hoverIndex].gasLift > 0 && (
-                        <circle cx={getX(hoverIndex, ranges.data.length)} cy={getY2Right(ranges.data[hoverIndex].gasLift)} r="4.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
+                        <circle cx={getX(hoverIndex, ranges.data.length)} cy={safeNum(getY2Right(ranges.data[hoverIndex].gasLift), yMax2)} r="4.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
                       )}
                       
-                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={getY3Left(ranges.data[hoverIndex].gor)} r="4.5" fill="#f43f5e" stroke="#ffffff" strokeWidth="1.5" />
-                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={getY3Right(ranges.data[hoverIndex].waterCut)} r="4.5" fill="#2563eb" stroke="#ffffff" strokeWidth="1.5" />
-                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={getY3Right(ranges.data[hoverIndex].choke)} r="4.5" fill="#c084fc" stroke="#ffffff" strokeWidth="1.5" />
+                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={safeNum(getY3Left(ranges.data[hoverIndex].gor), yMax3)} r="4.5" fill="#f43f5e" stroke="#ffffff" strokeWidth="1.5" />
+                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={safeNum(getY3Right(ranges.data[hoverIndex].waterCut), yMax3)} r="4.5" fill="#2563eb" stroke="#ffffff" strokeWidth="1.5" />
+                      <circle cx={getX(hoverIndex, ranges.data.length)} cy={safeNum(getY3Right(ranges.data[hoverIndex].choke), yMax3)} r="4.5" fill="#c084fc" stroke="#ffffff" strokeWidth="1.5" />
                     </g>
                   )}
                 </svg>

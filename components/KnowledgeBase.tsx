@@ -159,22 +159,115 @@ export default function KnowledgeBase({
           return defaultValue;
         };
 
-        // Helper to parse dates in format DD-MMM-YY, e.g., 16-Jun-16, etc.
+        // Helper to parse any worksheet (from XLSX, XLS, or CSV) with header detection and date formatting preservation
+        const parseWorksheetToRows = (worksheet: XLSX.WorkSheet): any[] => {
+          if (!worksheet || !worksheet['!ref']) return [];
+          const range = XLSX.utils.decode_range(worksheet['!ref']);
+          
+          const recognizedHeaderKeywords = [
+            'date', 'ngay', 'ngày', 'time', 'thang', 'tháng', 'month',
+            'rate', 'oil', 'liquid', 'water', 'gas', 'choke', 'bhfp', 'whfp',
+            'pwf', 'status', 'cum', 'gor', 'prod', 'well', 'gieng', 'giếng'
+          ];
+
+          // 1. Detect best header row by finding row with most keyword matches
+          let headerRowIndex = range.s.r;
+          let maxMatches = 0;
+          for (let R = range.s.r; R <= Math.min(range.s.r + 10, range.e.r); ++R) {
+            let matchCount = 0;
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+              const cell = worksheet[XLSX.utils.encode_cell({ r: R, c: C })];
+              if (cell && cell.v !== undefined) {
+                const valStr = normalizeStr(String(cell.v));
+                if (recognizedHeaderKeywords.some(k => valStr.includes(normalizeStr(k)))) {
+                  matchCount++;
+                }
+              }
+            }
+            if (matchCount > maxMatches) {
+              maxMatches = matchCount;
+              headerRowIndex = R;
+            }
+          }
+
+          // Extract column headers
+          const headers: string[] = [];
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cell = worksheet[XLSX.utils.encode_cell({ r: headerRowIndex, c: C })];
+            headers.push(cell && cell.v !== undefined ? String(cell.v).trim() : `__EMPTY_${C}`);
+          }
+
+          const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          const rows: any[] = [];
+          for (let R = headerRowIndex + 1; R <= range.e.r; ++R) {
+            const row: any = {};
+            let hasData = false;
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+              const colName = headers[C - range.s.c];
+              if (!colName || colName.startsWith('__EMPTY_')) continue;
+              const cell = worksheet[XLSX.utils.encode_cell({ r: R, c: C })];
+              if (cell && cell.v !== undefined && cell.v !== null && cell.v !== '') {
+                hasData = true;
+                const isDateCol = ['date', 'ngay', 'ngày', 'time', 'thang', 'tháng', 'month'].some(alias => 
+                  normalizeStr(colName).includes(normalizeStr(alias))
+                );
+
+                if (isDateCol) {
+                  // If cell.w is present and formatted as text (e.g. "16-Jun-16", "16/06/2016", "16-06-2016")
+                  if (cell.w && isNaN(Number(cell.w))) {
+                    row[colName] = cell.w;
+                  } else if (cell.t === 'd' && cell.v instanceof Date) {
+                    const d = cell.v;
+                    const day = d.getUTCDate();
+                    const mName = monthsShort[d.getUTCMonth()];
+                    const yr = String(d.getUTCFullYear()).slice(-2);
+                    row[colName] = `${day}-${mName}-${yr}`;
+                  } else if (typeof cell.v === 'number' && cell.v >= 20000 && cell.v <= 100000) {
+                    // Excel numeric serial date code
+                    const parsed = XLSX.SSF.parse_date_code(cell.v);
+                    if (parsed) {
+                      const day = parsed.d;
+                      const mName = monthsShort[parsed.m - 1] || 'Jan';
+                      const yr = String(parsed.y).slice(-2);
+                      row[colName] = `${day}-${mName}-${yr}`;
+                    } else {
+                      row[colName] = cell.w || cell.v;
+                    }
+                  } else {
+                    row[colName] = cell.w || cell.v;
+                  }
+                } else {
+                  // For numerical and text columns, preserve cell.v (number or string)
+                  row[colName] = cell.v;
+                }
+              }
+            }
+            if (hasData) rows.push(row);
+          }
+          return rows;
+        };
+
+        // Helper to parse dates robustly from any source: formatted string, Excel serial number, Date object
         const parseCSVDate = (dateStr: any): Date => {
           if (!dateStr) return new Date();
-          if (dateStr instanceof Date) return dateStr;
+          if (dateStr instanceof Date) {
+            return new Date(dateStr.getUTCFullYear(), dateStr.getUTCMonth(), dateStr.getUTCDate());
+          }
           const str = String(dateStr).trim();
           
-          const d = new Date(str);
-          if (!isNaN(d.getTime())) return d;
-
-          // Handle Excel numeric serial dates
-          const numVal = Number(str);
-          if (!isNaN(numVal) && numVal > 30000 && numVal < 100000) {
-            return new Date((numVal - 25569) * 86400 * 1000);
+          // 1. Handle Excel numeric serial dates (e.g. 42537 or "42537") BEFORE calling new Date(str)
+          if (typeof dateStr === 'number' || (/^\d+(\.\d+)?$/.test(str) && !str.includes('-') && !str.includes('/'))) {
+            const numVal = Number(str);
+            if (!isNaN(numVal) && numVal >= 20000 && numVal <= 100000) {
+              const parsed = XLSX.SSF.parse_date_code(numVal);
+              if (parsed) {
+                return new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, parsed.S || 0);
+              }
+            }
           }
-          
-          const parts = str.split(/[\-\/\s]+/);
+
+          // 2. Parse text date parts (DD-MMM-YY, DD/MM/YYYY, YYYY-MM-DD, etc.)
+          const parts = str.split(/[\-\/\s\.]+/);
           const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
           if (parts.length === 3) {
@@ -182,18 +275,12 @@ export default function KnowledgeBase({
             const p1_num = parseInt(parts[1], 10);
             const p2_num = parseInt(parts[2], 10);
 
-            // 1. Is it like YYYY-MM-DD?
-            if (p0_num > 1900 && p0_num < 2100 && !isNaN(p1_num) && !isNaN(p2_num)) {
+            // Style 1: YYYY-MM-DD
+            if (parts[0].length === 4 && p0_num >= 1900 && p0_num <= 2100 && !isNaN(p1_num) && !isNaN(p2_num)) {
               return new Date(p0_num, p1_num - 1, p2_num);
             }
 
-            // 2. Is it like DD-MM-YYYY or DD-MM-YY?
-            if (!isNaN(p0_num) && p0_num > 0 && p0_num <= 31 && !isNaN(p1_num) && p1_num > 0 && p1_num <= 12 && !isNaN(p2_num)) {
-              const yr = p2_num < 100 ? 2000 + p2_num : p2_num;
-              return new Date(yr, p1_num - 1, p0_num);
-            }
-
-            // 3. Is it DD-MMM-YY style (e.g. "16-Jun-16")?
+            // Style 2: DD-MMM-YY or DD-MMM-YYYY (e.g. "16-Jun-16" or "16-Jun-2016")
             const p1_lower = parts[1].toLowerCase().substring(0, 3);
             const mIdx = months.findIndex(mName => mName === p1_lower);
             if (mIdx !== -1) {
@@ -203,7 +290,31 @@ export default function KnowledgeBase({
                 return new Date(year, mIdx, p0_num);
               }
             }
+
+            // Style 3: MMM-DD-YY or MMM-DD-YYYY (e.g. "Jun-16-16")
+            const p0_lower = parts[0].toLowerCase().substring(0, 3);
+            const mIdx0 = months.findIndex(mName => mName === p0_lower);
+            if (mIdx0 !== -1) {
+              let year = p2_num;
+              if (year < 100) year += 2000;
+              if (!isNaN(p1_num) && !isNaN(year)) {
+                return new Date(year, mIdx0, p1_num);
+              }
+            }
+
+            // Style 4: DD-MM-YYYY or DD-MM-YY (e.g. "16/06/2016" or "16-06-2016")
+            if (!isNaN(p0_num) && p0_num > 0 && p0_num <= 31 && !isNaN(p1_num) && p1_num > 0 && p1_num <= 12 && !isNaN(p2_num)) {
+              const yr = p2_num < 100 ? 2000 + p2_num : p2_num;
+              return new Date(yr, p1_num - 1, p0_num);
+            }
           }
+
+          // 3. Fallback to JS new Date if not a pure number
+          if (!/^\d+$/.test(str)) {
+            const d = new Date(str);
+            if (!isNaN(d.getTime())) return d;
+          }
+
           return new Date();
         };
 
@@ -212,33 +323,54 @@ export default function KnowledgeBase({
 
         workbook.SheetNames.forEach((sheetName) => {
           const worksheet = workbook.Sheets[sheetName];
-          const sheetJson = XLSX.utils.sheet_to_json<any>(worksheet);
-          if (!sheetJson || sheetJson.length === 0) return;
+          const sheetRows = parseWorksheetToRows(worksheet);
+          if (!sheetRows || sheetRows.length === 0) return;
 
-          totalRowsParsed += sheetJson.length;
+          // Check if this sheet has production data (dates or rates)
+          const dateCols = ['date', 'ngay', 'ngày', 'time', 'thang', 'tháng', 'month'];
+          const rateCols = ['rate', 'prod', 'oil', 'liquid', 'water', 'gas', 'bhfp', 'whfp', 'choke', 'gor', 'pwf'];
+
+          const hasDateCol = sheetRows.some(row => 
+            Object.keys(row).some(k => dateCols.some(alias => normalizeStr(k).includes(normalizeStr(alias))))
+          );
+          const hasRateCol = sheetRows.some(row => 
+            Object.keys(row).some(k => rateCols.some(alias => normalizeStr(k).includes(normalizeStr(alias))))
+          );
+
+          // Skip non-production sheets (e.g. "README", "Notes", "Cover" without production data)
+          if (!hasDateCol && !hasRateCol) {
+            return;
+          }
+
+          totalRowsParsed += sheetRows.length;
 
           // Check if this sheet has a well column
           const wellNameCols = ['Well Name', 'Well', 'Giêng', 'Ten Gieng', 'Name', 'well_name', 'wellname'];
           let hasWellCol = false;
-          if (sheetJson[0]) {
-            hasWellCol = Object.keys(sheetJson[0]).some(k => 
-              wellNameCols.map(alias => alias.toLowerCase().replace(/[\s_\-\(\)\/]/g, ''))
-                .includes(k.trim().toLowerCase().replace(/[\s_\-\(\)\/]/g, ''))
+          if (sheetRows[0]) {
+            hasWellCol = Object.keys(sheetRows[0]).some(k => 
+              wellNameCols.some(alias => normalizeStr(k) === normalizeStr(alias))
             );
           }
 
-          const isGenericSheet = /^sheet\d*$/i.test(sheetName) || sheetName.toLowerCase() === 'data' || sheetName.toLowerCase() === 'production';
-          
-          if (hasWellCol && (isGenericSheet || workbook.SheetNames.length === 1)) {
-            sheetJson.forEach((row: any) => {
-              const name = getRowString(row, wellNameCols, sheetName);
-              if (!wellGroupMap[name]) wellGroupMap[name] = [];
-              wellGroupMap[name].push(row);
+          if (hasWellCol) {
+            let foundExplicitWellName = false;
+            sheetRows.forEach((row: any) => {
+              const name = getRowString(row, wellNameCols, '').trim();
+              if (name) {
+                foundExplicitWellName = true;
+                if (!wellGroupMap[name]) wellGroupMap[name] = [];
+                wellGroupMap[name].push(row);
+              }
             });
+            if (!foundExplicitWellName) {
+              if (!wellGroupMap[sheetName]) wellGroupMap[sheetName] = [];
+              wellGroupMap[sheetName].push(...sheetRows);
+            }
           } else {
-            // Use the sheet name itself as the well name
+            // Use the sheet name itself as the well name (e.g. "103P", "104P", "105P")
             if (!wellGroupMap[sheetName]) wellGroupMap[sheetName] = [];
-            wellGroupMap[sheetName].push(...sheetJson);
+            wellGroupMap[sheetName].push(...sheetRows);
           }
         });
 
@@ -309,11 +441,15 @@ export default function KnowledgeBase({
             const rawDateStr = getRowString(r, ['Date', 'date', 'ngay', 'Ngay', 'Ngày', 'Time', 'time', 'Thang', 'Tháng', 'month', 'Month'], '16-Jun-16');
             let dateStr = rawDateStr;
             const parsedD = parseCSVDate(rawDateStr);
-            if (parsedD && !isNaN(parsedD.getTime())) {
-              const dayStr = String(parsedD.getDate()).padStart(2, '0');
-              const monthStr = String(parsedD.getMonth() + 1).padStart(2, '0');
-              const yearStr = parsedD.getFullYear();
-              dateStr = `${dayStr}-${monthStr}-${yearStr}`;
+            const isPureNumber = /^\d+(\.\d+)?$/.test(rawDateStr.trim()) && !rawDateStr.includes('-') && !rawDateStr.includes('/');
+            if (isPureNumber && parsedD && !isNaN(parsedD.getTime())) {
+              const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              const day = parsedD.getDate();
+              const mName = monthsShort[parsedD.getMonth()] || 'Jan';
+              const yr = String(parsedD.getFullYear()).slice(-2);
+              dateStr = `${day}-${mName}-${yr}`;
+            } else if (rawDateStr) {
+              dateStr = rawDateStr;
             }
 
             const oR = getRowValue(r, ['Rate Oil', 'Rate_Oil', 'oilrate', 'oil_rate', 'prodoil', 'Oil Rate', 'Oil_Rate', 'qo', 'Qo', 'Oil bopd', 'Oil (bopd)', 'Lưu lượng dầu', 'Sản lượng dầu'], 300);
